@@ -36,7 +36,7 @@ app/
     ├── helpers.py                   # Helper functions
     └── security.py                  # Security utilities
 
-main_refactored.py                   # Application entry point
+main.py                   # Application entry point
 .env                                 # Environment variables (production)
 .env.example                         # Environment template
 requirements.txt                     # Python dependencies
@@ -96,7 +96,7 @@ print(secrets.token_urlsafe(32))
 
 ```bash
 # Development
-python main_refactored.py
+python main.py
 
 # Production with Gunicorn
 gunicorn -w 4 -k uvicorn.workers.UvicornWorker main_refactored:app --bind 0.0.0.0:8000
