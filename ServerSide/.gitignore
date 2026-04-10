@@ -1,0 +1,66 @@
+############################################
+# GENERAL
+############################################
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+############################################
+# PYTHON / FASTAPI
+############################################
+backend_fastapi/venv/
+backend_fastapi/.venv/
+backend_fastapi/env/
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+############################################
+# ENV / SECRETS
+############################################
+.env
+.env.*
+*.env
+
+############################################
+# IDE FILES
+############################################
+.vscode/
+.idea/
+
+############################################
+# FLUTTER / DART
+############################################
+frontend_flutter/.dart_tool/
+frontend_flutter/.flutter-plugins
+frontend_flutter/.flutter-plugins-dependencies
+frontend_flutter/.packages
+frontend_flutter/.pub-cache/
+frontend_flutter/build/
+
+############################################
+# FLUTTER PLATFORM BUILD FILES
+############################################
+frontend_flutter/android/.gradle/
+frontend_flutter/android/app/build/
+frontend_flutter/ios/Pods/
+frontend_flutter/ios/.symlinks/
+frontend_flutter/linux/build/
+frontend_flutter/macos/Pods/
+frontend_flutter/windows/build/
+
+############################################
+# OPTIONAL LARGE GENERATED FILES
+############################################
+*.keystore
+*.jks
