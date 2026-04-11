@@ -8,8 +8,8 @@ import 'package:fourthapp/models/review.dart';
 
 class ApiService {
   static Future<User?> getWorker(String workerId) async {
-    final response =
-        await http.get(Uri.parse('http://10.0.2.2:8000/users/$workerId'));
+    final response = await http
+        .get(Uri.parse('http://10.0.2.2:8000/api/v1/users/$workerId'));
     if (response.statusCode == 200) {
       final jsonData = jsonDecode(response.body);
       return User.fromJson(jsonData);
@@ -20,8 +20,8 @@ class ApiService {
   }
 
   static Future<User?> getWorkerByEmail(String email) async {
-    final response =
-        await http.get(Uri.parse('http://10.0.2.2:8000/users?email=$email'));
+    final response = await http
+        .get(Uri.parse('http://10.0.2.2:8000/api/v1/users?email=$email'));
     if (response.statusCode == 200) {
       final jsonData = jsonDecode(response.body);
       return User.fromJson(jsonData);
@@ -40,7 +40,7 @@ class ApiService {
     }
 
     final response = await http.get(
-      Uri.parse('http://10.0.2.2:8000/worker-services'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/services/worker/my-services'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
@@ -68,7 +68,7 @@ class ApiService {
     if (accessToken == null) return null;
 
     final response = await http.put(
-      Uri.parse('http://10.0.2.2:8000/users/$workerId/introduction'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/users/$workerId'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $accessToken',
@@ -91,11 +91,15 @@ class ApiService {
     required String userId,
     required Map<String, dynamic> updatedData,
   }) async {
+    if (userId.trim().isEmpty) {
+      throw Exception('User ID is required to update profile.');
+    }
+
     final accessToken = await _getAccessToken();
     if (accessToken == null) return null;
 
     final response = await http.put(
-      Uri.parse('http://10.0.2.2:8000/users/$userId'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/users/$userId'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $accessToken',
@@ -115,7 +119,7 @@ class ApiService {
 
   static Future<List<Service>> getWorkerServicesByEmail(String email) async {
     final response = await http.get(
-      Uri.parse('http://10.0.2.2:8000/services?worker_email=$email'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/services?worker_email=$email'),
     );
 
     if (response.statusCode == 200) {
@@ -130,7 +134,7 @@ class ApiService {
 
   static Future<List<Service>> getAllServices() async {
     final response =
-        await http.get(Uri.parse('http://10.0.2.2:8000/all-services'));
+        await http.get(Uri.parse('http://10.0.2.2:8000/api/v1/services'));
     if (response.statusCode == 200) {
       final jsonData = jsonDecode(response.body) as List;
       return jsonData
@@ -150,7 +154,7 @@ class ApiService {
     }
 
     final response = await http.get(
-      Uri.parse('http://10.0.2.2:8000/users/profile?email=$email'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/users?email=$email'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $accessToken',
@@ -173,8 +177,29 @@ class ApiService {
 
     print("Updating user with email: $email");
 
+    final userResponse = await http.get(
+      Uri.parse('http://10.0.2.2:8000/api/v1/users?email=$email'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+    );
+
+    if (userResponse.statusCode != 200) {
+      print(
+          "Error fetching user by email: ${userResponse.statusCode} - ${userResponse.body}");
+      throw Exception('Failed to resolve user ID by email');
+    }
+
+    final userJson = jsonDecode(userResponse.body) as Map<String, dynamic>;
+    final userId = userJson['_id'] ?? userJson['id'];
+
+    if (userId == null) {
+      throw Exception('User ID not found');
+    }
+
     final response = await http.put(
-      Uri.parse('http://10.0.2.2:8000/users/profile?email=$email'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/users/$userId'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $accessToken',

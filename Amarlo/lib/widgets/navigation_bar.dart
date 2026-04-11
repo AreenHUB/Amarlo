@@ -74,7 +74,7 @@ class NavigationBarPageState extends State<NavigationBarPage> {
 
   List<Widget> _widgetOptions() {
     if (_isLoggedIn) {
-      if (_userType == 'Worker') {
+      if (_userType == 'worker') {
         return [
           HomePage(),
           WorkerDashboardContainer(
@@ -88,7 +88,7 @@ class NavigationBarPageState extends State<NavigationBarPage> {
           ),
           AboutAndReportScreen(token: _accessToken ?? ''),
         ];
-      } else if (_userType == 'Normal User') {
+      } else if (_userType == 'customer') {
         return [
           HomePage(),
           user.DashboardScreen(),
@@ -112,7 +112,7 @@ class NavigationBarPageState extends State<NavigationBarPage> {
 
   List<BottomNavigationBarItem> _bottomNavItems() {
     if (_isLoggedIn) {
-      if (_userType == 'Worker') {
+      if (_userType == 'worker') {
         return const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
@@ -140,7 +140,7 @@ class NavigationBarPageState extends State<NavigationBarPage> {
             backgroundColor: Colors.brown, // Background color
           ),
         ];
-      } else if (_userType == 'Normal User') {
+      } else if (_userType == 'customer') {
         return const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),

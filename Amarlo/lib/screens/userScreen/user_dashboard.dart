@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'create_post_screen.dart';
-import 'offers_screen.dart'; 
+import 'offers_screen.dart';
 import 'models.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -115,7 +115,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (accessToken != null) {
       try {
         final response = await http.delete(
-          Uri.parse('http://10.0.2.2:8000/posts/${post.id}'),
+          Uri.parse('http://10.0.2.2:8000/api/v1/posts/${post.id}'),
           headers: {'Authorization': 'Bearer $accessToken'},
         );
         if (response.statusCode == 200) {

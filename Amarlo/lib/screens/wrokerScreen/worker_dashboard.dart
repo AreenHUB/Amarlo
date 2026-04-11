@@ -50,7 +50,7 @@ class _WorkerDashboardState extends State<WorkerDashboard> {
     if (accessToken == null) return;
 
     final response = await http.get(
-      Uri.parse('http://10.0.2.2:8000/worker-services'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/services/worker/my-services'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
@@ -100,7 +100,7 @@ class _WorkerDashboardState extends State<WorkerDashboard> {
 
     if (_editingServiceId == null) {
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:8000/add-service'),
+        Uri.parse('http://10.0.2.2:8000/api/v1/services'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $accessToken',
@@ -119,7 +119,7 @@ class _WorkerDashboardState extends State<WorkerDashboard> {
       final confirm = await _showConfirmationDialog('update');
       if (confirm) {
         final response = await http.put(
-          Uri.parse('http://10.0.2.2:8000/update-service/$_editingServiceId'),
+          Uri.parse('http://10.0.2.2:8000/api/v1/services/$_editingServiceId'),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $accessToken',
@@ -150,7 +150,7 @@ class _WorkerDashboardState extends State<WorkerDashboard> {
     if (accessToken == null) return;
 
     final response = await http.delete(
-      Uri.parse('http://10.0.2.2:8000/delete-service/$serviceId'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/services/$serviceId'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 

@@ -63,7 +63,7 @@ class _OffersScreenState extends State<OffersScreen> {
       try {
         final response = await http.put(
           Uri.parse(
-              'http://10.0.2.2:8000/posts/${offer.postTitle}/offers/${offer.id}/${action}'),
+              'http://10.0.2.2:8000/api/v1/posts/${offer.postTitle}/offers/${offer.id}/${action}'),
           headers: {
             'Authorization': 'Bearer $accessToken',
           },

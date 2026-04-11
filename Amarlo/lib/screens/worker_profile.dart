@@ -120,8 +120,12 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
         if (_base64Image != null) 'imageBase64': _base64Image,
       };
 
+      final userIdToUpdate = (worker != null && worker!.id.isNotEmpty)
+          ? worker!.id
+          : widget.workerId;
+
       final updatedWorker = await ApiService.updateUserProfile(
-        userId: worker!.id,
+        userId: userIdToUpdate,
         updatedData: updatedData,
       );
 

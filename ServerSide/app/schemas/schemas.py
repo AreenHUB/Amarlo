@@ -6,7 +6,7 @@ These are used for request/response validation.
 from datetime import datetime
 from typing import Optional, List
 from enum import Enum
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ==================== User Models ====================
@@ -27,9 +27,14 @@ class UserCreate(UserBase):
     """Model for user registration."""
 
     password: str = Field(..., min_length=8, max_length=100)
-    image: Optional[str] = None
+    image: Optional[str] = Field(None, alias="imageBase64")
 
-    @validator("password")
+    model_config = {
+        "populate_by_name": True,
+        "extra": "ignore",
+    }
+
+    @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
         """Ensure password has uppercase, lowercase, and digits."""
@@ -39,6 +44,24 @@ class UserCreate(UserBase):
             raise ValueError("Password must contain lowercase letter")
         if not any(c.isdigit() for c in v):
             raise ValueError("Password must contain digit")
+        return v
+
+    @field_validator("gender", mode="before")
+    @classmethod
+    def normalize_gender(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @field_validator("userType", mode="before")
+    @classmethod
+    def normalize_user_type(cls, v: str) -> str:
+        if isinstance(v, str):
+            value = v.strip().lower()
+            if value in {"normal user", "customer"}:
+                return "customer"
+            if value == "worker":
+                return "worker"
         return v
 
 
@@ -129,10 +152,10 @@ class PostCreate(BaseModel):
 
     title: str = Field(..., min_length=5, max_length=200)
     description: str = Field(..., min_length=10, max_length=2000)
-    price_range: str = Field(..., pattern="^(0-100|100-500|500-1000|1000\\+)$")
+    price_range: str = Field(
+        ..., min_length=1, max_length=100
+    )  # More flexible price range
     category: Optional[str] = Field(None, max_length=100)
-    creator_username: str
-    creator_email: EmailStr
 
 
 class PostUpdate(BaseModel):

@@ -20,7 +20,7 @@ class _LoginPageState extends State<LoginPage> {
     final password = _passwordController.text;
 
     final response = await http.post(
-      Uri.parse('http://10.0.2.2:8000/login'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/auth/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'email': email,

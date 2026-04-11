@@ -1,4 +1,3 @@
-
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:carousel_slider/carousel_slider.dart';
@@ -205,10 +204,15 @@ class _HomePageState extends State<HomePage> {
     try {
       final response = await ApiService.getCategories();
       if (response.statusCode == 200) {
-        final categoriesData = jsonDecode(response.body);
+        final decoded = jsonDecode(response.body);
+        final categoriesData =
+            decoded is Map<String, dynamic> ? decoded['categories'] : decoded;
+
         if (mounted) {
           setState(() {
-            _categories = categoriesData.cast<String>();
+            _categories = (categoriesData as List<dynamic>)
+                .map((item) => item.toString())
+                .toList();
           });
         }
       } else {
@@ -270,23 +274,42 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _sendServiceRequest(Service service) {
-    if (_isLoggedIn) {
-      // Check _isLoggedIn directly
-      // Send the request data
+  Future<void> _sendServiceRequest(Service service) async {
+    if (!_isLoggedIn) {
+      _showSnackBar("Please login to send a request.");
+      return;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final accessToken = prefs.getString('access_token');
       final requestData = {
         "service_id": service.id,
         "user_email": _email,
         "user_name": _username,
         "worker_email": service.workerEmail,
         "service_name": service.name,
-        "created_at": DateTime.now()
-            .toIso8601String(), // Store current time in ISO format
+        "created_at": DateTime.now().toIso8601String(),
+        "status": "pending",
       };
-      _socketChannel?.sink.add(jsonEncode(requestData));
-      _showSnackBar("Request sent");
-    } else {
-      _showSnackBar("Please login to send a request.");
+
+      final response = await http.post(
+        Uri.parse('http://10.0.2.2:8000/api/v1/requests'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+        },
+        body: jsonEncode(requestData),
+      );
+
+      if (response.statusCode == 201) {
+        _showSnackBar("Request sent");
+      } else {
+        _showSnackBar(
+            "Failed to send request: ${response.statusCode} ${response.body}");
+      }
+    } catch (e) {
+      _showSnackBar('Failed to send request: $e');
     }
   }
 
@@ -304,8 +327,8 @@ class _HomePageState extends State<HomePage> {
             ),
             TextButton(
               onPressed: _isLoggedIn
-                  ? () {
-                      _sendServiceRequest(service);
+                  ? () async {
+                      await _sendServiceRequest(service);
                       Navigator.of(context).pop();
                     }
                   : () {
@@ -1102,7 +1125,7 @@ class ApiService {
   static Future<http.Response?> getUserInfo(String accessToken) async {
     try {
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/user-info'),
+        Uri.parse('http://10.0.2.2:8000/api/v1/users/me'),
         headers: {'Authorization': 'Bearer $accessToken'},
       );
       if (response.statusCode == 200) {
@@ -1118,7 +1141,7 @@ class ApiService {
   static Future<http.Response> getServices() async {
     try {
       final response =
-          await http.get(Uri.parse('http://10.0.2.2:8000/services'));
+          await http.get(Uri.parse('http://10.0.2.2:8000/api/v1/services'));
       if (response.statusCode == 200) {
         return response;
       }
@@ -1128,12 +1151,12 @@ class ApiService {
     return http.Response('Error fetching services', 500);
   }
 
-  // Function to get all categories (you'll need to create a backend endpoint)
+  // Function to get all categories
   static Future<http.Response> getCategories() async {
     try {
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/categories'),
-      ); // Your backend endpoint
+        Uri.parse('http://10.0.2.2:8000/api/v1/services/categories'),
+      );
       if (response.statusCode == 200) {
         return response;
       }
@@ -1146,7 +1169,7 @@ class ApiService {
   static Future<http.Response?> getUserFromToken(String accessToken) async {
     try {
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/get-user-from-token'),
+        Uri.parse('http://10.0.2.2:8000/api/v1/users/me'),
         headers: {'Authorization': 'Bearer $accessToken'},
       );
       if (response.statusCode == 200) {

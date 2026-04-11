@@ -52,9 +52,9 @@ class _RegisterPageState extends State<RegisterPage> {
       final password = _passwordController.text;
       final email = _emailController.text;
       final number = _numberController.text;
-      final gender = _gender;
+      final gender = _gender.toLowerCase();
       final city = _city;
-      final userType = _userType;
+      final userType = _userType == 'Worker' ? 'worker' : 'customer';
       final speciality = _speciality == 'Other'
           ? _otherSpecialityController.text
           : _speciality;
@@ -66,7 +66,7 @@ class _RegisterPageState extends State<RegisterPage> {
           gender.isEmpty ||
           city.isEmpty ||
           userType.isEmpty ||
-          (userType == 'Worker' && speciality == null)) {
+          (_userType == 'Worker' && speciality == null)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Please fill all fields'),
@@ -83,7 +83,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
       try {
         final response = await http.post(
-          Uri.parse('http://10.0.2.2:8000/register'),
+          Uri.parse('http://10.0.2.2:8000/api/v1/auth/register'),
           headers: {
             'Content-Type': 'application/json; charset=UTF-8',
           },
@@ -100,7 +100,7 @@ class _RegisterPageState extends State<RegisterPage> {
           }),
         );
 
-        if (response.statusCode == 200) {
+        if (response.statusCode == 200 || response.statusCode == 201) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('User registered successfully'),

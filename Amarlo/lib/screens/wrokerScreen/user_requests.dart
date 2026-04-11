@@ -45,7 +45,7 @@ class _UserRequestsScreenState extends State<UserRequestsScreen> {
       });
 
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/posts/public'),
+        Uri.parse('http://10.0.2.2:8000/api/v1/posts/public/all'),
         headers: {
           'Authorization': 'Bearer $accessToken',
         },
@@ -68,7 +68,7 @@ class _UserRequestsScreenState extends State<UserRequestsScreen> {
 
   Future<void> _sendOffer(String postId, String content, double price) async {
     final response = await http.post(
-      Uri.parse('http://10.0.2.2:8000/posts/$postId/offers'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/posts/$postId/offers'),
       headers: {
         'Authorization': 'Bearer $_accessToken',
         'Content-Type': 'application/json',
@@ -89,7 +89,7 @@ class _UserRequestsScreenState extends State<UserRequestsScreen> {
   Future<void> _editOffer(
       String postId, String offerId, String content, double price) async {
     final response = await http.put(
-      Uri.parse('http://10.0.2.2:8000/posts/$postId/offers/$offerId'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/posts/$postId/offers/$offerId'),
       headers: {
         'Authorization': 'Bearer $_accessToken',
         'Content-Type': 'application/json',
@@ -106,7 +106,7 @@ class _UserRequestsScreenState extends State<UserRequestsScreen> {
 
   Future<void> _deleteOffer(String postId, String offerId) async {
     final response = await http.delete(
-      Uri.parse('http://10.0.2.2:8000/posts/$postId/offers/$offerId'),
+      Uri.parse('http://10.0.2.2:8000/api/v1/posts/$postId/offers/$offerId'),
       headers: {
         'Authorization': 'Bearer $_accessToken',
       },

@@ -18,7 +18,7 @@ class RequestProvider with ChangeNotifier {
       String workerEmail, String accessToken) async {
     try {
       final response = await http.get(
-        Uri.parse('http://10.0.2.2:8000/worker-requests/$workerEmail'),
+        Uri.parse('http://10.0.2.2:8000/api/v1/worker-requests/$workerEmail'),
         headers: {'Authorization': 'Bearer $accessToken'},
       );
 

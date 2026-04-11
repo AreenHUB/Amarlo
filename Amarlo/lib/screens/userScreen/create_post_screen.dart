@@ -66,12 +66,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Future<http.Response?> _createPost(
       String accessToken, String? username) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userEmail = prefs.getString(
-          'email'); // Assuming you store the user's email in SharedPreferences
-
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:8000/posts'),
+        Uri.parse('http://10.0.2.2:8000/api/v1/posts'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $accessToken',
@@ -81,8 +77,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           'description': _descriptionController.text,
           'price_range': _priceRangeController.text,
           'category': _categoryController.text,
-          'creator_username': username ?? '',
-          'creator_email': userEmail ?? '', // Add creator_email to request body
         }),
       );
       return response;
@@ -95,7 +89,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Future<http.Response?> _updatePost(String accessToken) async {
     try {
       final response = await http.put(
-        Uri.parse('http://10.0.2.2:8000/posts/${widget.post!.id}'),
+        Uri.parse('http://10.0.2.2:8000/api/v1/posts/${widget.post!.id}'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $accessToken',

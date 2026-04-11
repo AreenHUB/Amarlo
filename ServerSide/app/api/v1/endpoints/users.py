@@ -1,10 +1,5 @@
-"""
-Users API router.
-Handles user profile operations.
-"""
-
 import logging
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from bson import ObjectId
 
 from app.schemas import UserOut, UserProfileUpdate
@@ -17,7 +12,7 @@ router = APIRouter(prefix="/api/v1/users", tags=["Users"])
 
 
 @router.get("/me", response_model=UserOut)
-async def get_current_user_info(current_user: dict = None):
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current user profile."""
     try:
         # Remove password before returning
@@ -81,7 +76,9 @@ async def get_user(user_id: str):
 
 @router.put("/{user_id}", response_model=UserOut)
 async def update_user(
-    user_id: str, profile_update: UserProfileUpdate, current_user: dict = None
+    user_id: str,
+    profile_update: UserProfileUpdate,
+    current_user: dict = Depends(get_current_user),
 ):
     """Update user profile."""
     try:

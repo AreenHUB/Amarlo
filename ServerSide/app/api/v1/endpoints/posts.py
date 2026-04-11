@@ -6,19 +6,20 @@ Handles post CRUD operations and offers.
 import logging
 from datetime import datetime
 from typing import List
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 
 from app.schemas import PostCreate, PostUpdate, OfferCreate, OfferStatus
 from app.db import get_database, CollectionNames
 from app.utils import generate_id
+from app.api.v1.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/posts", tags=["Posts"])
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_post(post: PostCreate, current_user: dict = None):
+async def create_post(post: PostCreate, current_user: dict = Depends(get_current_user)):
     """Create a new post."""
     try:
         db = get_database()
@@ -27,13 +28,15 @@ async def create_post(post: PostCreate, current_user: dict = None):
         post_doc = {
             "_id": generate_id(),
             **post.dict(),
+            "creator_username": current_user.get("username", ""),
+            "creator_email": current_user["email"],
             "user_email": current_user["email"],
             "created_at": datetime.utcnow(),
             "offers": [],
         }
 
         posts_collection.insert_one(post_doc)
-        logger.info(f"Post created by {current_user['email']}")
+        logger.info(f"Post created by {post.creator_email}")
         return post_doc
 
     except Exception as e:
@@ -45,7 +48,7 @@ async def create_post(post: PostCreate, current_user: dict = None):
 
 
 @router.get("")
-async def get_user_posts(current_user: dict = None):
+async def get_user_posts(current_user: dict = Depends(get_current_user)):
     """Get posts created by current user."""
     try:
         db = get_database()
@@ -81,7 +84,9 @@ async def get_all_posts():
 
 
 @router.put("/{post_id}")
-async def update_post(post_id: str, post: PostUpdate, current_user: dict = None):
+async def update_post(
+    post_id: str, post: PostUpdate, current_user: dict = Depends(get_current_user)
+):
     """Update a post."""
     try:
         db = get_database()
@@ -119,7 +124,7 @@ async def update_post(post_id: str, post: PostUpdate, current_user: dict = None)
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: str, current_user: dict = None):
+async def delete_post(post_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a post."""
     try:
         db = get_database()
@@ -154,7 +159,9 @@ async def delete_post(post_id: str, current_user: dict = None):
 
 
 @router.post("/{post_id}/offers", status_code=status.HTTP_201_CREATED)
-async def create_offer(post_id: str, offer: OfferCreate, current_user: dict = None):
+async def create_offer(
+    post_id: str, offer: OfferCreate, current_user: dict = Depends(get_current_user)
+):
     """Create an offer for a post."""
     try:
         db = get_database()
@@ -190,7 +197,7 @@ async def create_offer(post_id: str, offer: OfferCreate, current_user: dict = No
 
 
 @router.get("/{post_id}/offers")
-async def get_post_offers(post_id: str, current_user: dict = None):
+async def get_post_offers(post_id: str, current_user: dict = Depends(get_current_user)):
     """Get offers for a post."""
     try:
         db = get_database()
@@ -221,7 +228,9 @@ async def get_post_offers(post_id: str, current_user: dict = None):
 
 
 @router.put("/{post_id}/offers/{offer_id}/accept")
-async def accept_offer(post_id: str, offer_id: str, current_user: dict = None):
+async def accept_offer(
+    post_id: str, offer_id: str, current_user: dict = Depends(get_current_user)
+):
     """Accept an offer."""
     try:
         db = get_database()

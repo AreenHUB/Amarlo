@@ -52,9 +52,11 @@ class _ChatScreenState extends State<ChatScreen> {
       _channel?.stream.listen(
         (message) {
           final decodedMessage = jsonDecode(message);
-          setState(() {
-            _messages.add(decodedMessage);
-          });
+          if (decodedMessage['type'] == 'chat_message') {
+            setState(() {
+              _messages.add(decodedMessage);
+            });
+          }
         },
         onError: (error) {
           print("WebSocket Error: $error");
