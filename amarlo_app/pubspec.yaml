@@ -1,0 +1,60 @@
+name: fourthapp
+description: Amarlo - Freelance Marketplace
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ─── HTTP & WebSocket ──────────────────────────────
+  http: ^1.2.1
+  web_socket_channel: ^3.0.3
+
+  http_parser: ^4.0.2
+  mime: ^1.0.4
+
+  # ─── State management ─────────────────────────────
+  provider: ^6.1.2
+
+  # ─── Storage ──────────────────────────────────────
+  shared_preferences: ^2.2.3
+
+  # ─── Images ───────────────────────────────────────
+  cached_network_image: ^3.3.1
+
+  # ─── Image / File picking ─────────────────────────
+  image_picker: ^1.1.2
+  file_picker: ^8.0.0
+
+  # ─── UI components ────────────────────────────────
+  flutter_rating_bar: ^4.0.1
+  carousel_slider: ^5.0.0
+  badges: ^3.1.2
+  flutter_countdown_timer: ^4.1.0
+  font_awesome_flutter: ^11.0.0
+
+  # ─── Date formatting ──────────────────────────────
+  intl: ^0.20.2
+
+  # ─── Permissions & saving ─────────────────────────
+  # image_gallery_saver: ^2.0.5
+  # image_gallery_saver_plus: ^3.0.0
+  gal: ^2.3.0
+  permission_handler: ^12.0.1
+
+  # ─── URL launching (safe area download) ───────────
+  url_launcher: ^6.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - images/
