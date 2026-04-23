@@ -12,7 +12,7 @@ class AboutAndReportScreen extends StatefulWidget {
 
 class _AboutAndReportScreenState extends State<AboutAndReportScreen> {
   final _descCtrl = TextEditingController();
-  List<Map<String, dynamic>> _reports = [];
+  List<dynamic> _reports = [];
   bool _loadingReports = false;
   bool _submitting = false;
 
@@ -46,13 +46,12 @@ class _AboutAndReportScreenState extends State<AboutAndReportScreen> {
     }
     setState(() => _submitting = true);
     try {
-      await ApiService.submitReport(_descCtrl.text.trim());
+      await ApiService.submitReport("system@amarlo.app", _descCtrl.text.trim());
       _descCtrl.clear();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Report submitted successfully')));
-        await _fetchReports();
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report submitted successfully')));
+      await _fetchReports();
     } on ApiException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {

@@ -1,36 +1,25 @@
 // lib/services/api_service.dart
-//
-// كل طلبات الـ API في مكان واحد.
-// يستخدم HttpClient الموحّد مع معالجة الأخطاء.
-
 import 'dart:io';
-
 import '../core/constants.dart';
 import '../models/app_models.dart';
 import 'http_client.dart';
 
 class ApiService {
-  ApiService._();
-
   // ══════════════════════════════════════════════
-  //  Auth
+  //  AUTH
   // ══════════════════════════════════════════════
 
   static Future<Map<String, dynamic>> login(String email, String password) async {
-    return await api.post(
+    final data = await api.post(
       AppConstants.loginUrl,
       {'email': email, 'password': password},
       auth: false,
-    ) as Map<String, dynamic>;
+    );
+    return data as Map<String, dynamic>;
   }
 
   static Future<void> logout() async {
-    await api.post(AppConstants.logoutUrl, {});
-  }
-
-  static Future<User> getMe() async {
-    final data = await api.get(AppConstants.meUrl) as Map<String, dynamic>;
-    return User.fromJson(data);
+    try { await api.post(AppConstants.logoutUrl, {}); } catch (_) {}
   }
 
   static Future<void> register({
@@ -44,110 +33,60 @@ class ApiService {
     String? speciality,
     File? image,
   }) async {
-    final fields = {
-      'username': username,
-      'email': email,
-      'password': password,
-      'number': number,
-      'gender': gender,
-      'city': city,
-      'userType': userType,
-      if (speciality != null) 'speciality': speciality,
-    };
-
     await api.multipartPost(
       AppConstants.registerUrl,
       fieldName: 'image',
       file: image,
-      fields: fields,
+      fields: {
+        'username': username,
+        'email':    email,
+        'password': password,
+        'number':   number,
+        'gender':   gender,
+        'city':     city,
+        'userType': userType,
+        if (speciality != null) 'speciality': speciality,
+      },
       auth: false,
     );
   }
 
-  // ══════════════════════════════════════════════
-  //  Users
-  // ══════════════════════════════════════════════
-
-  static Future<User> getUser(String userId) async {
-    final data = await api.get(AppConstants.userUrl(userId));
-    return User.fromJson(data as Map<String, dynamic>);
-  }
-
-  static Future<User> getUserByEmail(String email) async {
-    final data = await api.get(AppConstants.userByEmailUrl(email));
-    return User.fromJson(data as Map<String, dynamic>);
-  }
-
-  static Future<User> updateUser({
-    required String userId,
-    String? username,
-    String? number,
-    String? city,
-    String? speciality,
-    String? introduction,
-    String? facebook,
-    String? instagram,
-    String? telegram,
-    File? image,
-  }) async {
-    final fields = <String, String>{};
-    if (username != null) fields['username'] = username;
-    if (number != null) fields['number'] = number;
-    if (city != null) fields['city'] = city;
-    if (speciality != null) fields['speciality'] = speciality;
-    if (introduction != null) fields['introduction'] = introduction;
-    if (facebook != null) fields['facebook'] = facebook;
-    if (instagram != null) fields['instagram'] = instagram;
-    if (telegram != null) fields['telegram'] = telegram;
-
-    final data = await api.multipartPut(
-      AppConstants.userUrl(userId),
-      file: image,
-      fieldName: image != null ? 'image' : null,
-      fields: fields,
-    );
+  static Future<User> getMe() async {
+    final data = await api.get(AppConstants.meUrl);
     return User.fromJson(data as Map<String, dynamic>);
   }
 
   // ══════════════════════════════════════════════
-  //  Services
+  //  SERVICES
   // ══════════════════════════════════════════════
 
   static Future<Paged<Service>> getServices({
-    String? workerEmail,
-    String? category,
-    String? city,
-    double? minPrice,
-    double? maxPrice,
-    String? search,
-    int page = 1,
-    int size = 20,
+    int page = 1, int size = 20,
+    String? workerEmail, String? category,
+    String? search, String? city,
+    double? minPrice, double? maxPrice,
   }) async {
-    final params = <String, String>{
-      'page': '$page',
-      'size': '$size',
-      if (workerEmail != null) 'worker_email': workerEmail,
-      if (category != null) 'category': category,
-      if (city != null) 'city': city,
-      if (minPrice != null) 'min_price': '$minPrice',
-      if (maxPrice != null) 'max_price': '$maxPrice',
-      if (search != null) 'search': search,
-    };
-    final url = Uri.parse(AppConstants.servicesUrl)
-        .replace(queryParameters: params)
-        .toString();
-    final data = await api.get(url, auth: false);
+    final q = StringBuffer('${AppConstants.servicesUrl}?page=$page&size=$size');
+    if (workerEmail != null) q.write('&worker_email=${Uri.encodeComponent(workerEmail)}');
+    if (category != null)    q.write('&category=${Uri.encodeComponent(category)}');
+    if (search != null)      q.write('&search=${Uri.encodeComponent(search)}');
+    if (city != null)        q.write('&city=${Uri.encodeComponent(city)}');
+    if (minPrice != null)    q.write('&min_price=$minPrice');
+    if (maxPrice != null)    q.write('&max_price=$maxPrice');
+    final data = await api.get(q.toString(), auth: false);
     return Paged.fromJson(data as Map<String, dynamic>, Service.fromJson);
   }
 
-  static Future<List<Service>> getWorkerServices() async {
-    final data = await api.get(AppConstants.workerServicesUrl) as List;
-    return data.map((e) => Service.fromJson(e as Map<String, dynamic>)).toList();
+  static Future<List<Service>> getMyServices() async {
+    final data = await api.get(AppConstants.workerServicesUrl);
+    return (data as List).map((e) => Service.fromJson(e)).toList();
   }
 
+  static Future<List<Service>> getWorkerServices() => getMyServices();
+
   static Future<List<String>> getCategories() async {
-    final data = await api.get(AppConstants.categoriesUrl, auth: false) as List;
-    return data.cast<String>();
+    final data = await api.get(AppConstants.categoriesUrl, auth: false);
+    return (data as List).map((e) => e.toString()).toList();
   }
 
   static Future<Service> addService({
@@ -156,106 +95,92 @@ class ApiService {
     required double price,
     required String description,
     String? category,
-    File? image,
+    required File image,
   }) async {
-    final fields = {
-      'name': name,
-      'location': location,
-      'price': '$price',
-      'description': description,
-      if (category != null) 'category': category,
-    };
     final data = await api.multipartPost(
       AppConstants.servicesUrl,
       fieldName: 'image',
       file: image,
-      fields: fields,
+      fields: {
+        'name': name, 'location': location,
+        'price': '$price', 'description': description,
+        if (category != null) 'category': category,
+      },
     );
     return Service.fromJson(data as Map<String, dynamic>);
   }
 
   static Future<Service> updateService(
-    String serviceId, {
-    String? name,
-    String? location,
-    double? price,
-    String? description,
-    String? category,
-    File? image,
+    String id, {
+    String? name, String? location, double? price,
+    String? description, String? category, File? image,
   }) async {
-    final fields = <String, String>{};
-    if (name != null) fields['name'] = name;
-    if (location != null) fields['location'] = location;
-    if (price != null) fields['price'] = '$price';
-    if (description != null) fields['description'] = description;
-    if (category != null) fields['category'] = category;
-
     final data = await api.multipartPut(
-      AppConstants.serviceUrl(serviceId),
+      AppConstants.serviceUrl(id),
+      fieldName: 'image',
       file: image,
-      fieldName: image != null ? 'image' : null,
-      fields: fields,
+      fields: {
+        if (name != null) 'name': name,
+        if (location != null) 'location': location,
+        if (price != null) 'price': '$price',
+        if (description != null) 'description': description,
+        if (category != null) 'category': category,
+      },
     );
     return Service.fromJson(data as Map<String, dynamic>);
   }
 
-  static Future<void> deleteService(String serviceId) async {
-    await api.delete(AppConstants.serviceUrl(serviceId));
+  static Future<void> deleteService(String id) async {
+    await api.delete(AppConstants.serviceUrl(id));
+  }
+
+  static Future<Map<String, dynamic>> requestService(String serviceId) async {
+    final data = await api.post(AppConstants.serviceRequestUrl(serviceId), {});
+    return (data as Map<String, dynamic>?) ?? {};
   }
 
   // ══════════════════════════════════════════════
-  //  Posts & Offers
+  //  POSTS & OFFERS
   // ══════════════════════════════════════════════
 
-  static Future<Paged<Post>> getMyPosts({int page = 1, int size = 20}) async {
-    final url = Uri.parse(AppConstants.postsUrl)
-        .replace(queryParameters: {'page': '$page', 'size': '$size'})
-        .toString();
-    final data = await api.get(url);
+  static Future<Paged<Post>> getMyPosts({int page = 1, int size = 100}) async {
+    final data = await api.get('${AppConstants.postsUrl}?page=$page&size=$size');
     return Paged.fromJson(data as Map<String, dynamic>, Post.fromJson);
   }
 
   static Future<Paged<Post>> getPublicPosts({
-    String? category,
-    String? search,
-    int page = 1,
-    int size = 20,
+    int page = 1, int size = 100,
+    String? search, String? category,
   }) async {
-    final params = <String, String>{
-      'page': '$page',
-      'size': '$size',
-      if (category != null) 'category': category,
-      if (search != null) 'search': search,
-    };
-    final url = Uri.parse(AppConstants.publicPostsUrl)
-        .replace(queryParameters: params)
-        .toString();
-    final data = await api.get(url);
+    final q = StringBuffer('${AppConstants.publicPostsUrl}?page=$page&size=$size');
+    if (search != null)   q.write('&search=${Uri.encodeComponent(search)}');
+    if (category != null) q.write('&category=${Uri.encodeComponent(category)}');
+    final data = await api.get(q.toString());
     return Paged.fromJson(data as Map<String, dynamic>, Post.fromJson);
   }
 
+  static Future<List<Post>> getMyReceivedOffers() async {
+    final data = await api.get(AppConstants.myOffersUrl);
+    return (data as List).map((e) => Post.fromJson(e)).toList();
+  }
+
   static Future<Post> createPost({
-    required String title,
-    required String description,
-    required String priceRange,
-    String? category,
+    required String title, required String description,
+    required String priceRange, String? category,
   }) async {
     final data = await api.post(AppConstants.postsUrl, {
-      'title': title,
-      'description': description,
+      'title': title, 'description': description,
       'price_range': priceRange,
       if (category != null) 'category': category,
     });
     return Post.fromJson(data as Map<String, dynamic>);
   }
 
-  static Future<Post> updatePost(String postId, {
-    String? title,
-    String? description,
-    String? priceRange,
-    String? category,
+  static Future<Post> updatePost(String id, {
+    String? title, String? description,
+    String? priceRange, String? category,
   }) async {
-    final data = await api.put(AppConstants.postUrl(postId), {
+    final data = await api.put(AppConstants.postUrl(id), {
       if (title != null) 'title': title,
       if (description != null) 'description': description,
       if (priceRange != null) 'price_range': priceRange,
@@ -264,191 +189,128 @@ class ApiService {
     return Post.fromJson(data as Map<String, dynamic>);
   }
 
-  static Future<void> deletePost(String postId) async {
-    await api.delete(AppConstants.postUrl(postId));
+  static Future<void> deletePost(String id) async {
+    await api.delete(AppConstants.postUrl(id));
   }
 
   static Future<void> addOffer(String postId, String content, double price) async {
-    await api.post(
-      AppConstants.postOffersUrl(postId),
-      {'content': content, 'price': price},
-    );
+    await api.post(AppConstants.postOffersUrl(postId),
+        {'content': content, 'price': price});
   }
 
-  static Future<void> updateOffer(String postId, String offerId,
-      String content, double price) async {
-    await api.put(
-      AppConstants.postOfferUrl(postId, offerId),
-      {'content': content, 'price': price},
-    );
-  }
-
-  static Future<void> deleteOffer(String postId, String offerId) async {
-    await api.delete(AppConstants.postOfferUrl(postId, offerId));
-  }
-
-  static Future<void> respondToOffer(
-      String postId, String offerId, String action) async {
+  static Future<void> respondToOffer(String postId, String offerId, bool accept) async {
+    final action = accept ? 'accept' : 'reject';
     await api.put(AppConstants.postOfferActionUrl(postId, offerId, action), {});
   }
 
-  static Future<List<Map<String, dynamic>>> getMyReceivedOffers() async {
-    final data = await api.get(AppConstants.myOffersUrl) as List;
-    return data.cast<Map<String, dynamic>>();
-  }
-
   // ══════════════════════════════════════════════
-  //  Service Requests
+  //  SERVICE REQUESTS
   // ══════════════════════════════════════════════
 
-  static Future<Paged<ServiceRequest>> getUserRequests(String userId,
-      {int page = 1, int size = 20}) async {
-    final url = Uri.parse(AppConstants.requestsUserUrl(userId))
-        .replace(queryParameters: {'page': '$page', 'size': '$size'})
-        .toString();
-    final data = await api.get(url);
-    return Paged.fromJson(
-        data as Map<String, dynamic>, ServiceRequest.fromJson);
-  }
-
-  static Future<Paged<ServiceRequest>> getWorkerRequests(String email,
-      {int page = 1, int size = 20}) async {
-    final url = Uri.parse(AppConstants.requestsWorkerUrl(email))
-        .replace(queryParameters: {'page': '$page', 'size': '$size'})
-        .toString();
-    final data = await api.get(url);
-    return Paged.fromJson(
-        data as Map<String, dynamic>, ServiceRequest.fromJson);
-  }
-
-  static Future<List<ServiceRequest>> getUserCompletedRequests(
-      String email) async {
-    final data =
-        await api.get(AppConstants.requestUserCompletedUrl(email)) as List;
-    return data
-        .map((e) => ServiceRequest.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
-  static Future<List<ServiceRequest>> getWorkerCompletedRequests(
-      String email) async {
-    final data =
-        await api.get(AppConstants.requestWorkerCompletedUrl(email)) as List;
-    return data
-        .map((e) => ServiceRequest.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
-  static Future<void> acceptRequest(String requestId, DateTime deadline) async {
-    await api.put(
-      '${AppConstants.requestAcceptUrl(requestId)}?deadline=${deadline.toIso8601String()}',
-      {},
-    );
-  }
-
-  static Future<void> markRequestReady(String requestId) async {
-    await api.put(AppConstants.requestReadyUrl(requestId), {});
-  }
-
-  static Future<void> deleteRequest(String requestId) async {
-    await api.delete(AppConstants.requestUrl(requestId));
-  }
-
-  // ══════════════════════════════════════════════
-  //  Chat
-  // ══════════════════════════════════════════════
-
-  static Future<List<ChatMessage>> getMessages(
-      String senderEmail, String recipientEmail) async {
+  static Future<Paged<ServiceRequest>> getUserRequests(
+    String userId, {int page = 1, int size = 100}) async {
     final data = await api.get(
-      AppConstants.messagesUrl(senderEmail, recipientEmail),
-    ) as List;
-    return data
-        .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
-        .toList();
+        '${AppConstants.requestsUserUrl(userId)}?page=$page&size=$size');
+    return Paged.fromJson(data as Map<String, dynamic>, ServiceRequest.fromJson);
   }
 
-  static Future<List<Conversation>> getConversations(String email) async {
-    final data =
-        await api.get(AppConstants.conversationsUrl(email)) as List;
-    return data
-        .map((e) => Conversation.fromJson(e as Map<String, dynamic>))
-        .toList();
+  static Future<List<ServiceRequest>> getUserCompletedRequests(String email) async {
+    final data = await api.get(AppConstants.requestUserCompletedUrl(email));
+    return (data as List).map((e) => ServiceRequest.fromJson(e)).toList();
   }
 
-  static Future<void> markMessageRead(String messageId) async {
-    await api.put(AppConstants.markReadUrl(messageId), {});
+  static Future<Paged<ServiceRequest>> getWorkerRequests(
+    String email, {int page = 1, int size = 100}) async {
+    final data = await api.get(
+        '${AppConstants.requestsWorkerUrl(email)}?page=$page&size=$size');
+    return Paged.fromJson(data as Map<String, dynamic>, ServiceRequest.fromJson);
   }
 
-  static Future<bool> toggleBlock(String targetEmail) async {
-    final data = await api.post(AppConstants.toggleBlockUrl(targetEmail), {});
-    return (data as Map<String, dynamic>)['blocked'] as bool;
+  static Future<List<ServiceRequest>> getWorkerCompletedRequests(String email) async {
+    final data = await api.get(AppConstants.requestWorkerCompletedUrl(email));
+    return (data as List).map((e) => ServiceRequest.fromJson(e)).toList();
   }
 
-  static Future<bool> getBlockStatus(String targetEmail) async {
-    final data = await api.get(AppConstants.blockStatusUrl(targetEmail));
-    return (data as Map<String, dynamic>)['blocked'] as bool;
-  }
-
-  // ══════════════════════════════════════════════
-  //  Safe Area
-  // ══════════════════════════════════════════════
-
-  static Future<void> uploadWork(String requestId, File file) async {
-    await api.multipartPost(
-      AppConstants.safeAreaUploadUrl(requestId),
-      fieldName: 'file',
-      file: file,
-    );
-  }
-
-  static Future<void> sendPayment(String requestId, int amount) async {
-    await api.post(
-      AppConstants.safeAreaPaymentUrl(requestId),
-      {'amount': amount},
-    );
-  }
-
-  static Future<Map<String, dynamic>> getPaymentStatus(
-      String requestId) async {
-    return await api.get(AppConstants.safeAreaPaymentStatusUrl(requestId))
-        as Map<String, dynamic>;
-  }
-
-  static Future<String> confirmDeal(String requestId) async {
-    final data = await api.post(
-      AppConstants.safeAreaConfirmUrl(requestId),
+  static Future<void> acceptRequest(String id, String deadline) async {
+    await api.put(
+      '${AppConstants.requestAcceptUrl(id)}?deadline=${Uri.encodeComponent(deadline)}',
       {},
     );
-    return (data as Map<String, dynamic>)['message'] as String;
   }
 
-  static Future<double> getWorkerBalance(String email) async {
-    final data = await api.get(AppConstants.workerBalanceUrl(email));
-    return ((data as Map<String, dynamic>)['balance'] as num).toDouble();
+  static Future<void> markReady(String id) async {
+    await api.put(AppConstants.requestReadyUrl(id), {});
+  }
+
+  static Future<void> deleteRequest(String id) async {
+    await api.delete(AppConstants.requestUrl(id));
   }
 
   // ══════════════════════════════════════════════
-  //  Reviews
+  //  USERS & REVIEWS
   // ══════════════════════════════════════════════
+
+  static Future<User> getUser(String id) async {
+    final data = await api.get(AppConstants.userUrl(id));
+    return User.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<User?> getUserByEmail(String email) async {
+    final data = await api.get(AppConstants.userByEmailUrl(email));
+    final list = data as List;
+    if (list.isEmpty) return null;
+    return User.fromJson(list.first as Map<String, dynamic>);
+  }
+
+  static Future<User> updateUser(
+    String userId, {
+    String? username, String? number, String? city,
+    String? speciality, String? introduction,
+    String? facebook, String? instagram, String? telegram,
+    File? image,
+  }) async {
+    final data = await api.multipartPut(
+      AppConstants.userUrl(userId),
+      fieldName: 'image',
+      file: image,
+      fields: {
+        if (username != null) 'username': username,
+        if (number != null) 'number': number,
+        if (city != null) 'city': city,
+        if (speciality != null) 'speciality': speciality,
+        if (introduction != null) 'introduction': introduction,
+        if (facebook != null) 'facebook': facebook,
+        if (instagram != null) 'instagram': instagram,
+        if (telegram != null) 'telegram': telegram,
+      },
+    );
+    return User.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<User> updateProfile(String userId, {
+    String? username, String? number, String? city,
+    String? speciality, String? introduction,
+    String? facebook, String? instagram, String? telegram,
+    File? image,
+  }) => updateUser(userId,
+      username: username, number: number, city: city,
+      speciality: speciality, introduction: introduction,
+      facebook: facebook, instagram: instagram, telegram: telegram,
+      image: image);
 
   static Future<List<Review>> getReviews(String workerEmail) async {
-    final data = await api.get(AppConstants.reviewsUrl(workerEmail)) as List;
-    return data
-        .map((e) => Review.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final data = await api.get(AppConstants.reviewsUrl(workerEmail));
+    return (data as List).map((e) => Review.fromJson(e)).toList();
   }
 
-  static Future<void> addReview(
-      String workerEmail, int rating, String? comment) async {
+  static Future<void> addReview(String workerEmail, int rating, String? comment) async {
     await api.post(AppConstants.reviewsUrl(workerEmail), {
       'rating': rating,
       if (comment != null && comment.isNotEmpty) 'comment': comment,
     });
   }
 
-  static Future<void> updateReview(
-      String reviewId, int rating, String? comment) async {
+  static Future<void> updateReview(String reviewId, int rating, String? comment) async {
     await api.put(AppConstants.reviewUrl(reviewId), {
       'rating': rating,
       if (comment != null) 'comment': comment,
@@ -460,15 +322,88 @@ class ApiService {
   }
 
   // ══════════════════════════════════════════════
-  //  Reports
+  //  CHAT
   // ══════════════════════════════════════════════
 
-  static Future<void> submitReport(String description) async {
-    await api.post(AppConstants.reportsUrl(), {'description': description});
+  static Future<List<dynamic>> getMessages(String s, String r) async {
+    final data = await api.get(AppConstants.messagesUrl(s, r));
+    return data as List;
   }
 
-  static Future<List<Map<String, dynamic>>> getMyReports() async {
-    final data = await api.get(AppConstants.myReportsUrl()) as List;
-    return data.cast<Map<String, dynamic>>();
+  static Future<List<Conversation>> getConversations(String email) async {
+    final data = await api.get(AppConstants.conversationsUrl(email));
+    return (data as List).map((e) => Conversation.fromJson(e)).toList();
+  }
+
+  static Future<void> markRead(String messageId) async {
+    await api.put(AppConstants.markReadUrl(messageId), {});
+  }
+
+  static Future<Map<String, dynamic>> toggleBlock(String email) async {
+    final data = await api.post(AppConstants.toggleBlockUrl(email), {});
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  static Future<bool> getBlockStatus(String email) async {
+    final data = await api.get(AppConstants.blockStatusUrl(email));
+    return (data as Map<String, dynamic>)['blocked'] == true;
+  }
+
+  static Future<bool> getUserPresence(String email) async {
+    try {
+      final data = await api.get(AppConstants.presenceUrl(email));
+      return (data as Map<String, dynamic>)['online'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ══════════════════════════════════════════════
+  //  SAFE AREA
+  // ══════════════════════════════════════════════
+
+  static Future<void> uploadWork(String requestId, File file) async {
+    await api.multipartPost(
+      AppConstants.safeAreaUploadUrl(requestId),
+      fieldName: 'file',
+      file: file,
+    );
+  }
+
+  static Future<Map<String, dynamic>> getPaymentStatus(String id) async {
+    final data = await api.get(AppConstants.safeAreaPaymentStatusUrl(id));
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  static Future<void> sendPayment(String id, int amount) async {
+    await api.post(AppConstants.safeAreaPaymentUrl(id), {'amount': amount});
+  }
+
+  static Future<Map<String, dynamic>> confirmDeal(String id) async {
+    final data = await api.post(AppConstants.safeAreaConfirmUrl(id), {});
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  static Future<Map<String, dynamic>> getWorkerBalance(String email) async {
+    final data = await api.get(AppConstants.workerBalanceUrl(email));
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  // ══════════════════════════════════════════════
+  //  REPORTS
+  // ══════════════════════════════════════════════
+
+  static Future<void> submitReport(
+    String reportedEmail, String reason, {String? details}) async {
+    await api.post(AppConstants.reportsUrl, {
+      'reported_email': reportedEmail,
+      'reason': reason,
+      if (details != null) 'details': details,
+    });
+  }
+
+  static Future<List<dynamic>> getMyReports() async {
+    final data = await api.get(AppConstants.myReportsUrl);
+    return data as List;
   }
 }

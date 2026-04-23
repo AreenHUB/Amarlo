@@ -64,13 +64,12 @@ class _OfferCardState extends State<_OfferCard> {
   Future<void> _respond(String action) async {
     setState(() => _acting = true);
     try {
-      await ApiService.respondToOffer(_postId, _offerId, action);
+      await ApiService.respondToOffer(_postId, _offerId, action == "accept");
       widget.onAction();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Offer ${action}ed successfully')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Offer ${action}ed successfully')),
+      );
     } on ApiException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
@@ -114,9 +113,9 @@ class _OfferCardState extends State<_OfferCard> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.12),
+                    color: statusColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor.withOpacity(0.5)),
+                    border: Border.all(color: statusColor.withValues(alpha: 0.5)),
                   ),
                   child: Text(
                     _status.toUpperCase(),

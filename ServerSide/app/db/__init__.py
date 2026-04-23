@@ -1,0 +1,31 @@
+from app.db.mongodb import (
+    blocks_collection,
+    close_db,
+    ensure_indexes,
+    messages_collection,
+    payments_collection,
+    posts_collection,
+    refresh_tokens_collection,
+    reports_collection,
+    requests_collection,
+    reviews_collection,
+    safe_area_collection,
+    services_collection,
+    users_collection,
+)
+
+__all__ = [
+    "users_collection",
+    "services_collection",
+    "posts_collection",
+    "requests_collection",
+    "messages_collection",
+    "reviews_collection",
+    "safe_area_collection",
+    "payments_collection",
+    "reports_collection",
+    "blocks_collection",
+    "refresh_tokens_collection",
+    "close_db",
+    "ensure_indexes",
+]

@@ -2,7 +2,6 @@ import 'package:url_launcher/url_launcher.dart';
 // lib/screens/safe_area_page.dart
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../widgets/user_avatar.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
@@ -101,7 +100,8 @@ class _SafeAreaPageState extends State<SafeAreaPage> {
 
   Future<void> _confirmDeal() async {
     try {
-      final msg = await ApiService.confirmDeal(widget.request.id);
+      final result = await ApiService.confirmDeal(widget.request.id);
+      final msg = result['message'] as String? ?? '';
       setState(() {
         _confirmMessage = msg;
         if (msg.contains('completed')) _dealConfirmed = true;
@@ -129,8 +129,7 @@ class _SafeAreaPageState extends State<SafeAreaPage> {
 
   // ── Preview URL ──────────────────────────────────────
   String get _previewUrl =>
-      AppConstants.safeAreaPreviewUrl(widget.request.id) +
-      '?token=${context.read<AuthProvider>().token ?? ''}';
+      '${AppConstants.safeAreaPreviewUrl(widget.request.id)}?token=${context.read<AuthProvider>().token ?? ''}';
 
   String get _downloadUrl =>
       AppConstants.safeAreaDownloadUrl(widget.request.id);
@@ -400,9 +399,9 @@ class _StatusBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.4)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Row(children: [
         Icon(icon, color: color),

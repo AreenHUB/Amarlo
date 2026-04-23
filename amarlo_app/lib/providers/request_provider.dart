@@ -77,7 +77,7 @@ class RequestProvider extends ChangeNotifier {
 
   Future<void> acceptRequest(String requestId, DateTime deadline) async {
     try {
-      await ApiService.acceptRequest(requestId, deadline);
+      await ApiService.acceptRequest(requestId, deadline.toIso8601String());
       _updateStatus(requestId, 'accepted', deadline: deadline.toIso8601String());
     } catch (e) {
       _error = e.toString();

@@ -10,6 +10,7 @@ import '../models/app_models.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/http_client.dart';
+import '../services/notification_service.dart';
 import '../services/websocket_service.dart';
 import '../widgets/skeletons.dart';
 import '../widgets/states.dart';
@@ -20,10 +21,13 @@ import 'worker_profile_view.dart';
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<HomePage> createState() => HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class HomePageState extends State<HomePage> {
+  /// يُستدعى من navigation_bar بعد إضافة/تعديل خدمة
+  void refresh() => _load();
+
   List<Service> _services = [];
   Map<String, List<Service>> _grouped = {};
   List<Service> _filtered = [];
@@ -40,13 +44,17 @@ class _HomePageState extends State<HomePage> {
   bool _loading = true;
   String? _error;
 
-  static const _cities = [
-    'Damascus','Aleppo','Homs','Latakia','Hama',
-    'Daraa','Tartus','As-Suwayda','Deir ez-Zor'
-  ];
+  // cities are now searched dynamically
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _load();
+    // تسجيل Context للتنقل من Toast
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) NotificationManager.instance.setNavContext(context);
+    });
+  }
 
   @override
   void dispose() { _notifWs?.disconnect(); super.dispose(); }
@@ -55,6 +63,7 @@ class _HomePageState extends State<HomePage> {
     setState(() { _loading = true; _error = null; });
     try {
       await Future.wait([_fetchServices(), _fetchCategories()]);
+      if (!mounted) return;
       final auth = context.read<AuthProvider>();
       if (auth.isLoggedIn && auth.user != null) {
         _fetchConversations();
@@ -133,8 +142,8 @@ class _HomePageState extends State<HomePage> {
     );
     if (!ok) return;
     try {
-      await ApiService.addOffer(service.id, 'Service request', service.price);
-      if (mounted) showSuccess(context, 'Request sent!');
+      await ApiService.requestService(service.id);
+      if (mounted) showSuccess(context, 'Request sent successfully!');
     } on ApiException catch (e) { if (mounted) showError(context, e.message); }
   }
 
@@ -144,7 +153,7 @@ class _HomePageState extends State<HomePage> {
     shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusLg))),
     builder: (_) => _FilterSheet(
-      cities: _cities, categories: _categories,
+      categories: _categories,
       selectedCity: _selectedCity, selectedCategory: _selectedCategory,
       priceRange: _priceRange,
       onApply: (city, cat, range) {
@@ -187,7 +196,8 @@ class _HomePageState extends State<HomePage> {
                 ),
                 onPressed: () => Navigator.push(context, MaterialPageRoute(
                   builder: (_) => _ConversationList(
-                      conversations: _conversations, onBack: _fetchConversations),
+                      onBack: _fetchConversations,
+                      initial: _conversations),
                 )).then((_) => _fetchConversations()),
               ),
             ),
@@ -297,7 +307,7 @@ class _HomePageState extends State<HomePage> {
           height: 220, width: double.infinity, fit: BoxFit.cover),
       Container(height: 220, decoration: BoxDecoration(
         gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          colors: [Colors.black26, Colors.black.withOpacity(0.7)]),
+          colors: [Colors.black26, Colors.black.withValues(alpha: 0.7)]),
       )),
       Positioned.fill(child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -435,12 +445,12 @@ class _CarouselCard extends StatelessWidget {
 
 // ── Filter sheet ──────────────────────────────
 class _FilterSheet extends StatefulWidget {
-  final List<String> cities, categories;
+  final List<String> categories;
   final String? selectedCity, selectedCategory;
   final RangeValues priceRange;
   final void Function(String?, String?, RangeValues) onApply;
   final VoidCallback onClear;
-  const _FilterSheet({required this.cities, required this.categories,
+  const _FilterSheet({required this.categories,
     required this.selectedCity, required this.selectedCategory,
     required this.priceRange, required this.onApply, required this.onClear});
   @override State<_FilterSheet> createState() => _FilterSheetState();
@@ -464,12 +474,15 @@ class _FilterSheetState extends State<_FilterSheet> {
       const Text('Filter Services',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       const SizedBox(height: 20),
-      DropdownButtonFormField<String>(
-        value: _city, decoration: const InputDecoration(labelText: 'City'),
-        hint: const Text('All cities'),
-        items: [null, ...widget.cities]
-            .map((c) => DropdownMenuItem(value: c, child: Text(c ?? 'All cities'))).toList(),
-        onChanged: (v) => setState(() => _city = v),
+      TextFormField(
+        initialValue: _city,
+        decoration: const InputDecoration(
+          labelText: 'City or Location',
+          hintText: 'e.g. Damascus, London...',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.location_on_outlined),
+        ),
+        onChanged: (v) => _city = v.trim().isEmpty ? null : v.trim(),
       ),
       const SizedBox(height: 14),
       DropdownButtonFormField<String>(
@@ -502,42 +515,92 @@ class _FilterSheetState extends State<_FilterSheet> {
   );
 }
 
-// ── Conversation List ─────────────────────────
-class _ConversationList extends StatelessWidget {
-  final List<Conversation> conversations;
+// ── Conversation List — StatefulWidget يُحمِّل البيانات بنفسه ──
+class _ConversationList extends StatefulWidget {
   final VoidCallback onBack;
-  const _ConversationList({required this.conversations, required this.onBack});
+  const _ConversationList({required this.onBack, List<Conversation>? initial})
+      : _initial = initial;
+  final List<Conversation>? _initial;
+  @override
+  State<_ConversationList> createState() => _ConversationListState();
+}
+
+class _ConversationListState extends State<_ConversationList> {
+  List<Conversation> _convs = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget._initial != null && widget._initial!.isNotEmpty) {
+      _convs = widget._initial!;
+      _loading = false;
+    }
+    _fetch(); // دائماً جلب أحدث البيانات
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final auth = context.read<AuthProvider>();
+      if (auth.user == null) return;
+      final convs = await ApiService.getConversations(auth.user!.email);
+      if (mounted) setState(() { _convs = convs; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Messages'),
-      leading: IconButton(icon: const Icon(Icons.arrow_back),
-          onPressed: () { onBack(); Navigator.pop(context); })),
-    body: conversations.isEmpty
-        ? const EmptyState(title: 'No conversations yet',
-            subtitle: 'Start chatting from worker profiles',
-            icon: Icons.chat_bubble_outline)
-        : ListView.builder(
-            itemCount: conversations.length,
-            itemBuilder: (_, i) {
-              final c = conversations[i];
-              return ListTile(
-                leading: UserAvatar(imageUrl: c.otherUserImageUrl),
-                title: Text(c.otherUsername,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: Text(c.lastMessage, maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                trailing: c.unreadCount > 0
-                    ? badges.Badge(
-                        badgeContent: Text('${c.unreadCount}',
-                            style: const TextStyle(color: Colors.white, fontSize: 10)),
-                        child: const SizedBox.shrink())
-                    : null,
-                onTap: () => Navigator.push(context, MaterialPageRoute(
-                  builder: (_) => ChatScreen(recipientEmail: c.otherEmail,
-                      recipientUsername: c.otherUsername,
-                      recipientImageUrl: c.otherUserImageUrl))),
-              );
-            }),
+    appBar: AppBar(
+      title: const Text('Messages'),
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () { widget.onBack(); Navigator.pop(context); },
+      ),
+      actions: [
+        IconButton(icon: const Icon(Icons.refresh), onPressed: _fetch),
+      ],
+    ),
+    body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _convs.isEmpty
+            ? const EmptyState(
+                title: 'No conversations yet',
+                subtitle: 'Start chatting from a worker profile',
+                icon: Icons.chat_bubble_outline)
+            : RefreshIndicator(
+                onRefresh: _fetch,
+                child: ListView.builder(
+                  itemCount: _convs.length,
+                  itemBuilder: (_, i) {
+                    final c = _convs[i];
+                    return ListTile(
+                      leading: UserAvatar(imageUrl: c.otherUserImageUrl),
+                      title: Text(c.otherUsername,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(c.lastMessage, maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      trailing: c.unreadCount > 0
+                          ? badges.Badge(
+                              badgeContent: Text('${c.unreadCount}',
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 10)),
+                              child: const SizedBox.shrink())
+                          : null,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatScreen(
+                            recipientEmail:    c.otherEmail,
+                            recipientUsername: c.otherUsername,
+                            recipientImageUrl: c.otherUserImageUrl,
+                          ),
+                        ),
+                      ).then((_) => _fetch()), // أعد التحميل عند العودة
+                    );
+                  },
+                ),
+              ),
   );
 }

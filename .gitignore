@@ -24,3 +24,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+CLAUDE.md
+edits.txt
+/ServerSide/uploads/

@@ -66,7 +66,7 @@ class _LoginPageState extends State<LoginPage> {
                 child: Container(
                   padding: const EdgeInsets.all(28),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.25),
+                    color: Colors.white.withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Colors.white30),
                   ),
@@ -172,7 +172,7 @@ class _LoginPageState extends State<LoginPage> {
       prefixIcon: Icon(icon),
       suffixIcon: suffix,
       filled: true,
-      fillColor: Colors.white.withOpacity(0.75),
+      fillColor: Colors.white.withValues(alpha: 0.75),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
     );
   }

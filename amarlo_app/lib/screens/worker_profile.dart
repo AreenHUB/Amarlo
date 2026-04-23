@@ -11,7 +11,6 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/http_client.dart';
 import '../widgets/user_avatar.dart';
-import 'chat_screen.dart';
 
 class WorkerProfilePage extends StatefulWidget {
   final String workerId;
@@ -71,7 +70,7 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
       // Load balance
       try {
         final bal = await ApiService.getWorkerBalance(worker.email);
-        if (mounted) setState(() => _balance = bal);
+        if (mounted) setState(() => _balance = (bal['balance'] as num?)?.toDouble() ?? 0.0);
       } catch (_) {}
     } catch (e) {
       if (mounted) setState(() => _loading = false);
@@ -87,25 +86,24 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
   Future<void> _save() async {
     try {
       final updated = await ApiService.updateUser(
-        userId: widget.workerId,
-        username: _usernameCtrl.text,
-        number: _numberCtrl.text,
-        city: _cityCtrl.text,
-        speciality: _specCtrl.text,
-        introduction: _introCtrl.text,
-        facebook: _fbCtrl.text,
-        instagram: _igCtrl.text,
-        telegram: _tgCtrl.text,
+        widget.workerId,
+        username: _usernameCtrl.text.trim(),
+        number: _numberCtrl.text.trim(),
+        city: _cityCtrl.text.trim(),
+        speciality: _specCtrl.text.trim(),
+        introduction: _introCtrl.text.trim(),
+        facebook: _fbCtrl.text.trim(),
+        instagram: _igCtrl.text.trim(),
+        telegram: _tgCtrl.text.trim(),
         image: _newImage,
       );
+      if (!mounted) return;
       context.read<AuthProvider>().updateUser(updated);
       setState(() { _worker = updated; _newImage = null; });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile saved!')));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile saved!')));
     } on ApiException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -117,7 +115,7 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
   @override
   void dispose() {
     for (final c in [_introCtrl,_fbCtrl,_igCtrl,_tgCtrl,
-        _usernameCtrl,_numberCtrl,_cityCtrl,_specCtrl]) c.dispose();
+        _usernameCtrl,_numberCtrl,_cityCtrl,_specCtrl]) { c.dispose(); }
     super.dispose();
   }
 

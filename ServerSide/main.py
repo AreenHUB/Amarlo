@@ -1,114 +1,138 @@
 """
-Amarlo Backend — v1.0.0
+Amarlo Backend — v2.0.0
 ========================
+Professional FastAPI application with clean architecture:
+
+  app/
+  ├── api/v1/endpoints/  ← All route handlers
+  ├── core/              ← Config + Security
+  ├── db/                ← MongoDB + Indexes
+  ├── schemas/           ← Pydantic models
+  └── utils/             ← Images + Helpers
+
+Run:
+  uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
 
-from core.config import UPLOAD_DIR
-from routers import auth, chat, posts, reports, requests, safe_area, services, users
+from app.api.v1.api import api_router
+from app.core.config import settings
+from app.db.mongodb import close_db, ensure_indexes
+
+logging.basicConfig(
+    level=logging.INFO if not settings.DEBUG else logging.DEBUG,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 # ─── App ─────────────────────────────────────────────────
 app = FastAPI(
-    title="Amarlo API",
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
     description="""
-## 🚀 Amarlo — Freelance Marketplace API
+## Amarlo — Freelance Marketplace API v2.0.0
 
-### كيفية استخدام التوثيق:
+### Authentication
+1. **POST /api/v1/auth/login** — JSON body → returns `access_token` + `refresh_token`
+2. زر **🔒 Authorize** أعلى الصفحة → أدخل: `Bearer <access_token>`
+3. **POST /api/v1/auth/refresh** — جدّد الـ access token (يستخدم refresh_token)
 
-**الخطوة 1:** أرسل طلب إلى **POST /auth/login** مع بيانات دخولك  
-**الخطوة 2:** انسخ `access_token` من الرد  
-**الخطوة 3:** اضغط زر **🔒 Authorize** أعلى الصفحة  
-**الخطوة 4:** في حقل **Value** اكتب: `Bearer <access_token>` ثم اضغط Authorize  
-
-الآن جميع الطلبات المحمية ستعمل تلقائياً ✅
-
----
-للتسجيل السريع عبر Swagger: استخدم **/auth/token** (OAuth2 form)
+### Rate Limits
+- access_token  : 30 دقيقة
+- refresh_token : 30 يوم (auto-rotation عند كل refresh)
 """,
-    version="1.0.0",
-    openapi_tags=[
-        {"name": "Auth",             "description": "تسجيل دخول وخروج وإنشاء حساب"},
-        {"name": "Users",            "description": "الملفات الشخصية والتقييمات"},
-        {"name": "Services",         "description": "الخدمات المقدّمة من العمال"},
-        {"name": "Posts & Offers",   "description": "منشورات المستخدمين والعروض"},
-        {"name": "Service Requests", "description": "طلبات الخدمة ودورة حياتها"},
-        {"name": "Chat",             "description": "المراسلة الفورية وإدارة المحادثات"},
-        {"name": "Safe Area",        "description": "منطقة التسليم الآمن والدفع"},
-        {"name": "Reports",          "description": "البلاغات"},
-        {"name": "Health",           "description": "فحص حالة السيرفر"},
-    ],
+    openapi_url="/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 
-# ─── OpenAPI security scheme (Authorize button) ──────────
-def _add_security(openapi_schema: dict) -> dict:
-    """يُضيف BearerAuth لكل الـ endpoints المحمية."""
-    comps = openapi_schema.setdefault("components", {})
-    comps.setdefault("securitySchemes", {})["BearerAuth"] = {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "أدخل التوكن: **Bearer &lt;token&gt;**",
-    }
-
-    for path_item in openapi_schema.get("paths", {}).values():
-        for operation in path_item.values():
-            if not isinstance(operation, dict):
-                continue
-            responses = operation.get("responses", {})
-            # كل endpoint يُعيد 401 يحتاج auth
-            if "401" in responses or "403" in responses:
-                operation.setdefault("security", [{"BearerAuth": []}])
-
-    return openapi_schema
-
-
-# monkey-patch openapi() بعد بناء الـ schema
-_original_openapi = app.openapi
-
-
+# ─── Security scheme for /docs ───────────────────────────
 def _custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
-    schema = _original_openapi()
-    app.openapi_schema = _add_security(schema)
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})
+    schema["components"]["securitySchemes"]["BearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    for path_item in schema.get("paths", {}).values():
+        for op in path_item.values():
+            if isinstance(op, dict) and ("401" in op.get("responses", {})):
+                op.setdefault("security", [{"BearerAuth": []}])
+    app.openapi_schema = schema
     return app.openapi_schema
 
 
 app.openapi = _custom_openapi
 
 
-# ─── CORS ────────────────────────────────────────────────
+# ─── Middleware ───────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# ─── Static files ────────────────────────────────────────
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+
+# ─── Static files (uploaded images) ─────────────────────
+app.mount(
+    "/uploads",
+    StaticFiles(directory=str(settings.UPLOAD_PATH)),
+    name="uploads",
+)
+
 
 # ─── Routers ─────────────────────────────────────────────
-app.include_router(auth.router)
-app.include_router(users.router)
-app.include_router(services.router)
-app.include_router(posts.router)
-app.include_router(requests.router)
-app.include_router(chat.router)
-app.include_router(safe_area.router)
-app.include_router(reports.router)
+app.include_router(api_router)
+
+
+# ─── Lifecycle ───────────────────────────────────────────
+@app.on_event("startup")
+async def startup():
+    logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
+    logger.info(f"Environment: {settings.ENVIRONMENT}")
+    try:
+        ensure_indexes()
+        logger.info("✅ MongoDB indexes ready")
+    except Exception as e:
+        logger.warning(f"Could not ensure indexes: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    close_db()
+    logger.info("MongoDB connection closed")
 
 
 # ─── Health ──────────────────────────────────────────────
-@app.get("/", tags=["Health"], summary="Root")
+@app.get("/", tags=["Health"])
 async def root():
-    return {"status": "ok", "app": "Amarlo API", "version": "1.0.0"}
+    return {
+        "status": "ok",
+        "app":    settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "docs":   "/docs",
+    }
 
 
-@app.get("/health", tags=["Health"], summary="Health check")
+@app.get("/health", tags=["Health"])
 async def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "environment": settings.ENVIRONMENT}

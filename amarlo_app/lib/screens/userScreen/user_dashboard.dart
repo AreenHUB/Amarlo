@@ -1,9 +1,7 @@
 // lib/screens/userScreen/user_dashboard.dart
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import '../../models/app_models.dart';
-import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/http_client.dart';
 import 'offers_screen.dart';
@@ -21,7 +19,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<Post> _posts = [];
   List<Map<String, dynamic>> _offers = [];
   bool _loadingPosts = true;
-  bool _loadingOffers = true;
+  bool _loadingOffers = false; // ignore: unused_field
 
   @override
   void initState() {
@@ -41,7 +39,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() => _loadingPosts = true);
     try {
       final paged = await ApiService.getMyPosts(size: 100);
-      if (mounted) setState(() { _posts = paged.items; _loadingPosts = false; });
+      if (mounted) { setState(() { _posts = paged.items; _loadingPosts = false; }); }
     } catch (_) {
       if (mounted) setState(() => _loadingPosts = false);
     }
@@ -51,7 +49,27 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() => _loadingOffers = true);
     try {
       final offers = await ApiService.getMyReceivedOffers();
-      if (mounted) setState(() { _offers = offers; _loadingOffers = false; });
+      if (mounted) setState(() {
+        // تحويل Post إلى Map لتوافق OffersScreen
+        _offers = offers.map((p) => {
+          '_id':              p.id,
+          'title':            p.title,
+          'description':      p.description,
+          'price_range':      p.priceRange,
+          'category':         p.category ?? '',
+          'creator_email':    p.creatorEmail,
+          'creator_username': p.creatorUsername,
+          'offers':           p.offers.map((o) => {
+            '_id':             o.id,
+            'content':         o.content,
+            'price':           o.price,
+            'worker_email':    o.workerEmail,
+            'worker_username': o.workerUsername,
+            'status':          o.status,
+          }).toList(),
+        }).toList();
+        _loadingOffers = false;
+      });
     } catch (_) {
       if (mounted) setState(() => _loadingOffers = false);
     }
@@ -215,6 +233,7 @@ class _PostCard extends StatelessWidget {
               await ApiService.deletePost(post.id);
               onRefresh();
             } on ApiException catch (e) {
+              if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
             }
           }
@@ -292,6 +311,7 @@ class _PostFormState extends State<_PostForm> {
       widget.onSaved();
       if (mounted) Navigator.pop(context);
     } on ApiException catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _saving = false);

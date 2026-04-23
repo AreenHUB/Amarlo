@@ -5,15 +5,15 @@ class AppTheme {
   AppTheme._();
 
   // ─── Brand colors ─────────────────────────────────
-  static const Color primary = Color(0xFF6D4C41); // Brown 600
-  static const Color primaryLight = Color(0xFF9C786C); // Brown 300
-  static const Color primaryDark = Color(0xFF4B2C20); // Brown 900
-  static const Color accent = Color(0xFFFF8F00); // Amber 800
-  static const Color surface = Color(0xFFFFF8F5);
-  static const Color error = Color(0xFFD32F2F);
-  static const Color success = Color(0xFF388E3C);
-  static const Color warning = Color(0xFFF57C00);
-  static const Color info = Color(0xFF1976D2);
+  static const Color primary       = Color(0xFF6D4C41); // Brown 600
+  static const Color primaryLight  = Color(0xFF9C786C); // Brown 300
+  static const Color primaryDark   = Color(0xFF4B2C20); // Brown 900
+  static const Color accent        = Color(0xFFFF8F00); // Amber 800
+  static const Color surface       = Color(0xFFFFF8F5);
+  static const Color error         = Color(0xFFD32F2F);
+  static const Color success       = Color(0xFF388E3C);
+  static const Color warning       = Color(0xFFF57C00);
+  static const Color info          = Color(0xFF1976D2);
 
   // ─── Text styles ──────────────────────────────────
   static const TextStyle h1 = TextStyle(
@@ -22,19 +22,17 @@ class AppTheme {
       fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF212121));
   static const TextStyle h3 = TextStyle(
       fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF212121));
-  static const TextStyle body =
-      TextStyle(fontSize: 15, color: Color(0xFF424242));
-  static const TextStyle caption =
-      TextStyle(fontSize: 12, color: Color(0xFF757575));
-  static const TextStyle label =
-      TextStyle(fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.5);
+  static const TextStyle body = TextStyle(fontSize: 15, color: Color(0xFF424242));
+  static const TextStyle caption = TextStyle(fontSize: 12, color: Color(0xFF757575));
+  static const TextStyle label = TextStyle(
+      fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.5);
 
   // ─── Spacing ──────────────────────────────────────
-  static const double xs = 4;
-  static const double sm = 8;
-  static const double md = 16;
-  static const double lg = 24;
-  static const double xl = 32;
+  static const double xs  = 4;
+  static const double sm  = 8;
+  static const double md  = 16;
+  static const double lg  = 24;
+  static const double xl  = 32;
   static const double xxl = 48;
 
   // ─── Border radius ────────────────────────────────
@@ -46,7 +44,7 @@ class AppTheme {
   // ─── Shadows ──────────────────────────────────────
   static List<BoxShadow> get shadowSm => [
         BoxShadow(
-          color: Colors.black.withOpacity(0.06),
+          color: Colors.black.withValues(alpha: 0.06),
           blurRadius: 8,
           offset: const Offset(0, 2),
         ),
@@ -54,7 +52,7 @@ class AppTheme {
 
   static List<BoxShadow> get shadowMd => [
         BoxShadow(
-          color: Colors.black.withOpacity(0.10),
+          color: Colors.black.withValues(alpha: 0.10),
           blurRadius: 16,
           offset: const Offset(0, 4),
         ),
@@ -187,7 +185,6 @@ class AppTheme {
 
         // Tab bar
         tabBarTheme: const TabBarThemeData(
-          // <--- Changed here
           labelColor: Colors.white,
           unselectedLabelColor: Color(0xFFBCAAA4),
           indicatorColor: Colors.white,
@@ -199,20 +196,15 @@ class AppTheme {
 // ─── Status color helper ──────────────────────
 Color statusColor(String status) {
   switch (status.toLowerCase()) {
-    case 'pending':
-      return AppTheme.warning;
-    case 'accepted':
-      return AppTheme.info;
-    case 'ready_for_delivery':
-      return AppTheme.success;
-    case 'completed':
-      return const Color(0xFF00897B); // Teal
-    case 'rejected':
-      return AppTheme.error;
-    default:
-      return Colors.grey;
+    case 'pending': return AppTheme.warning;
+    case 'accepted': return AppTheme.info;
+    case 'ready_for_delivery': return AppTheme.success;
+    case 'completed': return const Color(0xFF00897B); // Teal
+    case 'rejected': return AppTheme.error;
+    default: return Colors.grey;
   }
 }
 
 // ─── Status label helper ─────────────────────
-String statusLabel(String status) => status.replaceAll('_', ' ').toUpperCase();
+String statusLabel(String status) =>
+    status.replaceAll('_', ' ').toUpperCase();

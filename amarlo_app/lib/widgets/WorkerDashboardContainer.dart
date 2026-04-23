@@ -1,14 +1,24 @@
 // lib/widgets/WorkerDashboardContainer.dart
 import 'package:flutter/material.dart';
-import '../screens/wrokerScreen/worker_dashboard.dart' as wd;
+
+import '../core/theme.dart';
 import '../screens/wrokerScreen/user_requests.dart';
+import '../screens/wrokerScreen/worker_dashboard.dart';
 
 class WorkerDashboardContainer extends StatefulWidget {
   final String workerId;
-  const WorkerDashboardContainer({super.key, required this.workerId});
+  /// Callback يُنادى عند أي تغيير في الخدمات → يُحدِّث Home فوراً
+  final VoidCallback? onServicesChanged;
+
+  const WorkerDashboardContainer({
+    super.key,
+    required this.workerId,
+    this.onServicesChanged,
+  });
 
   @override
-  State<WorkerDashboardContainer> createState() => _WorkerDashboardContainerState();
+  State<WorkerDashboardContainer> createState() =>
+      _WorkerDashboardContainerState();
 }
 
 class _WorkerDashboardContainerState extends State<WorkerDashboardContainer>
@@ -31,19 +41,27 @@ class _WorkerDashboardContainerState extends State<WorkerDashboardContainer>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard'),
+        title: const Text('My Dashboard'),
         automaticallyImplyLeading: false,
         bottom: TabBar(
           controller: _tab,
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
-          tabs: const [Tab(text: 'My Services'), Tab(text: 'Client Requests')],
+          indicatorWeight: 3,
+          tabs: const [
+            Tab(icon: Icon(Icons.work_outline, size: 20), text: 'My Services'),
+            Tab(icon: Icon(Icons.assignment_outlined, size: 20), text: 'Client Posts'),
+          ],
         ),
       ),
       body: TabBarView(
         controller: _tab,
-        children: const [wd.WorkerDashboard(), UserRequestsScreen()],
+        children: [
+          // ← تمرير callback للـ WorkerDashboard
+          WorkerDashboard(onServicesChanged: widget.onServicesChanged),
+          const UserRequestsScreen(),
+        ],
       ),
     );
   }

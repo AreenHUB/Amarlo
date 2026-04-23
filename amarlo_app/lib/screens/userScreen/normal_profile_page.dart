@@ -70,18 +70,17 @@ class _NormalProfilePageState extends State<NormalProfilePage> {
     setState(() => _saving = true);
     try {
       final updated = await ApiService.updateUser(
-        userId: widget.userId,
-        username: _usernameCtrl.text,
-        number: _numberCtrl.text,
-        city: _cityCtrl.text,
+        widget.userId,
+        username: _usernameCtrl.text.trim(),
+        number: _numberCtrl.text.trim(),
+        city: _cityCtrl.text.trim(),
         image: _newImage,
       );
+      if (!mounted) return;
       context.read<AuthProvider>().updateUser(updated);
       setState(() => _newImage = null);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile updated!')));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile updated!')));
     } on ApiException catch (e) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.message)));

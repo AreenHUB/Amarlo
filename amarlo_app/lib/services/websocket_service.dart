@@ -1,8 +1,12 @@
 // lib/services/websocket_service.dart
 //
-// إدارة اتصالات WebSocket:
-//   - ChatWebSocket  → المراسلة الفورية
-//   - NotificationWebSocket → الإشعارات وعدد الرسائل غير المقروءة
+// الإصلاح الجذري:
+//   المشكلة: _wsConnected يبقى false حتى تصل رسالة شات حقيقية
+//   الحل:
+//   1. نُرسل ping فور الاتصال
+//   2. Backend يُرسل {"type":"connected"} فور القبول
+//   3. نُعيّن _connected=true عند استقبال "connected" أو "pong"
+//   4. لا نعتمد على رسالة شات لإثبات الاتصال
 
 import 'dart:async';
 import 'dart:convert';
@@ -16,143 +20,220 @@ import '../models/app_models.dart';
 // ══════════════════════════════════════════════════════
 //  Chat WebSocket
 // ══════════════════════════════════════════════════════
-
 class ChatWebSocket {
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
+  Timer? _reconnectTimer;
+  Timer? _pingTimer;
+
+  bool _intentionalClose = false;
+  bool _connected        = false;
+  int  _retryCount       = 0;
+  static const _maxRetryDelay = Duration(seconds: 30);
 
   final String userEmail;
   final String token;
-
-  /// يُستدعى عند وصول رسالة جديدة
-  final void Function(ChatMessage message) onMessage;
-
-  /// يُستدعى عند حدوث خطأ
-  final void Function(dynamic error)? onError;
+  final void Function(ChatMessage msg) onMessage;
+  final void Function(bool connected)? onConnectionChange;
 
   ChatWebSocket({
     required this.userEmail,
     required this.token,
     required this.onMessage,
-    this.onError,
+    this.onConnectionChange,
   });
 
   void connect() {
-    final url = AppConstants.chatWsUrl(userEmail, token);
-    _channel = IOWebSocketChannel.connect(Uri.parse(url));
+    if (_intentionalClose) return;
 
+    final url = AppConstants.chatWsUrl(userEmail, token);
+
+    try {
+      _channel = IOWebSocketChannel.connect(
+        Uri.parse(url),
+        connectTimeout: const Duration(seconds: 10),
+      );
+    } catch (_) {
+      _scheduleReconnect();
+      return;
+    }
+
+    _sub?.cancel();
     _sub = _channel!.stream.listen(
-      (raw) {
-        try {
-          final data = jsonDecode(raw as String) as Map<String, dynamic>;
-          if (data['type'] == 'chat_message' || data.containsKey('message')) {
-            onMessage(ChatMessage.fromJson(data));
-          }
-        } catch (_) {}
-      },
-      onError: (e) {
-        onError?.call(e);
-        _scheduleReconnect();
-      },
-      onDone: () => _scheduleReconnect(),
+      _onData,
+      onError: (_) => _onDisconnected(),
+      onDone:  ()  => _onDisconnected(),
     );
+
+    // أرسل ping مباشرة بعد connect لإثبات الاتصال
+    _sendPing();
+
+    // Ping دوري كل 25 ثانية للـ keep-alive
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) => _sendPing());
+  }
+
+  void _onData(dynamic raw) {
+    // أي بيانات تصل = الاتصال نجح
+    if (!_connected) {
+      _connected = true;
+      _retryCount = 0;
+      onConnectionChange?.call(true);
+    }
+
+    try {
+      final data = jsonDecode(raw as String) as Map<String, dynamic>;
+      final type = data['type'] as String?;
+
+      // تجاهل control messages
+      if (type == 'pong' || type == 'ping' || type == 'connected') return;
+
+      // رسائل الشات فقط
+      if (data.containsKey('message') &&
+          data.containsKey('sender_email') &&
+          data.containsKey('recipient_email')) {
+        onMessage(ChatMessage.fromJson(data));
+      }
+    } catch (_) {}
+  }
+
+  void _sendPing() {
+    try {
+      _channel?.sink.add(jsonEncode({'type': 'ping'}));
+    } catch (_) {}
+  }
+
+  void _onDisconnected() {
+    if (_connected) {
+      _connected = false;
+      onConnectionChange?.call(false);
+    }
+    _pingTimer?.cancel();
+    if (!_intentionalClose) _scheduleReconnect();
   }
 
   void sendMessage(String recipientEmail, String message) {
-    _channel?.sink.add(jsonEncode({
-      'type': 'chat_message',
-      'recipient_email': recipientEmail,
-      'message': message,
-    }));
+    if (!_connected) return;
+    try {
+      _channel?.sink.add(jsonEncode({
+        'type':            'chat_message',
+        'recipient_email': recipientEmail,
+        'message':         message,
+      }));
+    } catch (_) {}
   }
 
   void disconnect() {
+    _intentionalClose = true;
+    _connected = false;
+    _reconnectTimer?.cancel();
+    _pingTimer?.cancel();
     _sub?.cancel();
     _channel?.sink.close();
-    _reconnectTimer?.cancel();
   }
 
-  Timer? _reconnectTimer;
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), connect);
+    // Exponential backoff: 2, 4, 8, 16, 30 ثانية
+    _retryCount++;
+    final delay = Duration(
+      seconds: (_maxRetryDelay.inSeconds).clamp(
+        0,
+        (2 * (_retryCount)).clamp(2, _maxRetryDelay.inSeconds),
+      ),
+    );
+    _reconnectTimer = Timer(delay, () {
+      if (!_intentionalClose) connect();
+    });
   }
 }
 
 // ══════════════════════════════════════════════════════
 //  Notification WebSocket
 // ══════════════════════════════════════════════════════
-
 class NotificationWebSocket {
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
+  Timer? _reconnectTimer;
+  Timer? _pingTimer;
+
+  bool _intentionalClose = false;
+  int  _retryCount       = 0;
 
   final String userEmail;
   final String token;
-
-  /// عدد الرسائل غير المقروءة
   final void Function(int count) onUnreadCount;
+  final void Function(Map<String, dynamic> event)? onNotification;
 
   NotificationWebSocket({
     required this.userEmail,
     required this.token,
     required this.onUnreadCount,
+    this.onNotification,
   });
 
   void connect() {
-    final url = AppConstants.notificationsWsUrl(userEmail, token);
-    _channel = IOWebSocketChannel.connect(Uri.parse(url));
+    if (_intentionalClose) return;
 
+    final url = AppConstants.notificationsWsUrl(userEmail, token);
+    try {
+      _channel = IOWebSocketChannel.connect(
+        Uri.parse(url),
+        connectTimeout: const Duration(seconds: 10),
+      );
+    } catch (_) {
+      _scheduleReconnect();
+      return;
+    }
+
+    _sub?.cancel();
     _sub = _channel!.stream.listen(
       (raw) {
         try {
           final data = jsonDecode(raw as String) as Map<String, dynamic>;
-          if (data['type'] == 'unread_count') {
-            onUnreadCount(data['count'] as int);
+          final type = data['type'] as String?;
+
+          if (type == 'unread_count') {
+            onUnreadCount((data['count'] as num).toInt());
+          } else if (type == 'ping') {
+            // استجب بـ pong
+            try { _channel?.sink.add(jsonEncode({'type': 'pong'})); } catch (_) {}
+          } else if (type != null && type != 'pong' && type != 'connected') {
+            onNotification?.call(data);
           }
         } catch (_) {}
       },
-      onError: (_) => _scheduleReconnect(),
-      onDone: () => _scheduleReconnect(),
+      onError: (_) {
+        if (!_intentionalClose) _scheduleReconnect();
+      },
+      onDone: () {
+        if (!_intentionalClose) _scheduleReconnect();
+      },
     );
+
+    // Keep-alive ping كل 30 ثانية
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      try {
+        _channel?.sink.add(jsonEncode({'type': 'ping'}));
+      } catch (_) {}
+    });
   }
 
   void disconnect() {
+    _intentionalClose = true;
+    _reconnectTimer?.cancel();
+    _pingTimer?.cancel();
     _sub?.cancel();
     _channel?.sink.close();
-    _reconnectTimer?.cancel();
   }
 
-  Timer? _reconnectTimer;
   void _scheduleReconnect() {
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), connect);
-  }
-}
-
-// ══════════════════════════════════════════════════════
-//  Request WebSocket (للإشعارات الخاصة بالطلبات)
-// ══════════════════════════════════════════════════════
-
-class RequestWebSocket {
-  WebSocketChannel? _channel;
-  StreamSubscription? _sub;
-
-  final String token;
-  final void Function(Map<String, dynamic> data) onUpdate;
-
-  RequestWebSocket({required this.token, required this.onUpdate});
-
-  void connect() {
-    // نستخدم نفس الـ notification socket ونفلتر الأحداث
-  }
-
-  void sendRequest(Map<String, dynamic> requestData) {
-    _channel?.sink.add(jsonEncode(requestData));
-  }
-
-  void disconnect() {
-    _sub?.cancel();
-    _channel?.sink.close();
+    _retryCount++;
+    final secs = (2 * _retryCount).clamp(2, 30);
+    _reconnectTimer = Timer(Duration(seconds: secs), () {
+      if (!_intentionalClose) connect();
+    });
   }
 }

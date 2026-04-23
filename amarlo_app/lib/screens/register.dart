@@ -1,11 +1,11 @@
 // lib/screens/register.dart
 import 'dart:io';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../services/api_service.dart';
+import '../core/theme.dart';
 import '../services/http_client.dart';
+import '../core/constants.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -22,216 +22,250 @@ class _RegisterPageState extends State<RegisterPage> {
   final _passwordCtrl    = TextEditingController();
   final _confirmPassCtrl = TextEditingController();
   final _numberCtrl      = TextEditingController();
+  final _cityCtrl        = TextEditingController();
   final _otherSpecCtrl   = TextEditingController();
 
-  String _gender   = 'Male';
-  String _city     = 'Damascus';
-  String _userType = 'Normal User';
+  String  _gender   = 'Male';
+  String  _userType = 'Normal User';
   String? _speciality;
-  File? _imageFile;
-  bool _loading = false;
-  bool _obscure = true;
-
-  static const _cities = [
-    'Damascus','Aleppo','As-Suwayda','Latakia',
-    'Hama','Daraa','Tartus','Homs','Deir ez-Zor',
-  ];
+  File?   _imageFile;
+  bool    _loading  = false;
+  bool    _obscure  = true;
 
   static const _specialities = [
-    'Programming and Tech','Graphic Design','Teaching',
-    'Business Services','Writing and Translation','Digital Marketing',
-    'Video and Animation','Animals care','Cleaning services',
-    'Customer Service','Sales and Marketing','Other',
+    'Programming and Tech', 'Graphic Design', 'Teaching',
+    'Business Services', 'Writing and Translation', 'Digital Marketing',
+    'Video and Animation', 'Animals care', 'Cleaning services',
+    'Customer Service', 'Sales and Marketing', 'Other',
   ];
 
   @override
   void dispose() {
-    for (final c in [_usernameCtrl,_emailCtrl,_passwordCtrl,
-        _confirmPassCtrl,_numberCtrl,_otherSpecCtrl]) c.dispose();
+    for (final c in [
+      _usernameCtrl, _emailCtrl, _passwordCtrl,
+      _confirmPassCtrl, _numberCtrl, _cityCtrl, _otherSpecCtrl,
+    ]) c.dispose();
     super.dispose();
   }
 
   Future<void> _pickImage() async {
     final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 800,
-      imageQuality: 85,
-    );
-    if (picked != null) setState(() => _imageFile = File(picked.path));
+        source: ImageSource.gallery, maxWidth: 800, imageQuality: 80);
+    if (picked != null && mounted) {
+      setState(() => _imageFile = File(picked.path));
+    }
   }
 
   Future<void> _register() async {
+    FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
-
-    if (_userType == 'Worker' && (_speciality == null)) {
-      _snack('Please select a speciality');
+    if (_userType == 'Worker' && _speciality == null) {
+      _snack('Please select a speciality', isError: true);
       return;
     }
 
     setState(() => _loading = true);
+
     try {
-      final spec = _speciality == 'Other' ? _otherSpecCtrl.text : _speciality;
-      await ApiService.register(
-        username:   _usernameCtrl.text.trim(),
-        email:      _emailCtrl.text.trim(),
-        password:   _passwordCtrl.text,
-        number:     _numberCtrl.text.trim(),
-        gender:     _gender,
-        city:       _city,
-        userType:   _userType,
-        speciality: spec,
-        image:      _imageFile,
-      );
+      final spec = _speciality == 'Other'
+          ? _otherSpecCtrl.text.trim()
+          : _speciality;
+
+      // استخدام multipart فقط إذا يوجد صورة، وإلا JSON عادي
+      if (_imageFile != null) {
+        await api.multipartPost(
+          AppConstants.registerUrl,
+          fieldName: 'image',
+          file: _imageFile,
+          fields: {
+            'username': _usernameCtrl.text.trim(),
+            'email':    _emailCtrl.text.trim().toLowerCase(),
+            'password': _passwordCtrl.text,
+            'number':   _numberCtrl.text.trim(),
+            'gender':   _gender,
+            'city':     _cityCtrl.text.trim(),
+            'userType': _userType,
+            if (spec != null) 'speciality': spec,
+          },
+          auth: false,
+        );
+      } else {
+        // بدون صورة — multipart بحقول نصية فقط
+        await api.multipartPost(
+          AppConstants.registerUrl,
+          fieldName: 'image',
+          file: null,
+          fields: {
+            'username': _usernameCtrl.text.trim(),
+            'email':    _emailCtrl.text.trim().toLowerCase(),
+            'password': _passwordCtrl.text,
+            'number':   _numberCtrl.text.trim(),
+            'gender':   _gender,
+            'city':     _cityCtrl.text.trim(),
+            'userType': _userType,
+            if (spec != null) 'speciality': spec,
+          },
+          auth: false,
+        );
+      }
+
       if (!mounted) return;
-      _snack('Registered successfully! Please log in.');
+      _snack('Account created! Please log in.');
       Navigator.pop(context);
     } on ApiException catch (e) {
-      _snack(e.message);
+      if (mounted) _snack(e.message, isError: true);
     } catch (e) {
-      _snack('Error: $e');
+      if (mounted) _snack('Connection error. Is the server running?', isError: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(msg)));
+  void _snack(String msg, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: isError ? AppTheme.error : AppTheme.success,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Create Account')),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.brown, Colors.white],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white30),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Form(
+            key: _formKey,
+            child: Column(children: [
+              // ── Avatar ───────────────────────────────
+              GestureDetector(
+                onTap: _pickImage,
+                child: Stack(children: [
+                  CircleAvatar(
+                    radius: 46,
+                    backgroundColor: AppTheme.primaryLight.withValues(alpha: 0.2),
+                    backgroundImage: _imageFile != null ? FileImage(_imageFile!) : null,
+                    child: _imageFile == null
+                        ? Column(mainAxisAlignment: MainAxisAlignment.center, children: const [
+                            Icon(Icons.add_a_photo, size: 26, color: AppTheme.primary),
+                            SizedBox(height: 4),
+                            Text('Photo', style: TextStyle(fontSize: 11, color: AppTheme.primary)),
+                          ])
+                        : null,
                   ),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      children: [
-                        const Text('Register',
-                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 20),
-
-                        // Avatar picker
-                        GestureDetector(
-                          onTap: _pickImage,
-                          child: CircleAvatar(
-                            radius: 45,
-                            backgroundImage: _imageFile != null ? FileImage(_imageFile!) : null,
-                            child: _imageFile == null
-                                ? const Icon(Icons.add_a_photo, size: 30)
-                                : null,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        _field(_usernameCtrl, 'Username', Icons.person_outline,
-                            validator: (v) => v!.isEmpty ? 'Required' : null),
-                        _field(_emailCtrl, 'Email', Icons.email_outlined,
-                            type: TextInputType.emailAddress,
-                            validator: (v) => !v!.contains('@') ? 'Invalid email' : null),
-                        _field(_passwordCtrl, 'Password', Icons.lock_outline,
-                            obscure: _obscure,
-                            suffix: IconButton(
-                              icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                              onPressed: () => setState(() => _obscure = !_obscure),
-                            ),
-                            validator: (v) => v!.length < 6 ? 'Min 6 chars' : null),
-                        _field(_confirmPassCtrl, 'Confirm Password', Icons.lock_outline,
-                            obscure: true,
-                            validator: (v) => v != _passwordCtrl.text ? 'Passwords don\'t match' : null),
-                        _field(_numberCtrl, 'Phone Number', Icons.phone_outlined,
-                            type: TextInputType.phone,
-                            validator: (v) => v!.isEmpty ? 'Required' : null),
-
-                        // Gender
-                        const SizedBox(height: 8),
-                        Row(children: [
-                          const Text('Gender:', style: TextStyle(fontWeight: FontWeight.w500)),
-                          _radio('Male'),
-                          _radio('Female'),
-                        ]),
-
-                        // City
-                        _dropdown<String>(
-                          value: _city,
-                          label: 'City',
-                          items: _cities,
-                          onChanged: (v) => setState(() => _city = v!),
-                        ),
-
-                        // User type
-                        const SizedBox(height: 8),
-                        Row(children: [
-                          const Text('Type:', style: TextStyle(fontWeight: FontWeight.w500)),
-                          _radioType('Normal User'),
-                          _radioType('Worker'),
-                        ]),
-
-                        // Speciality (workers only)
-                        if (_userType == 'Worker') ...[
-                          _dropdown<String>(
-                            value: _speciality,
-                            label: 'Speciality',
-                            items: _specialities,
-                            onChanged: (v) => setState(() {
-                              _speciality = v;
-                              if (v != 'Other') _otherSpecCtrl.clear();
-                            }),
-                          ),
-                          if (_speciality == 'Other')
-                            _field(_otherSpecCtrl, 'Enter speciality', Icons.work_outline,
-                                validator: (v) => v!.isEmpty ? 'Required' : null),
-                        ],
-
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _loading ? null : _register,
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: _loading
-                                ? const SizedBox(
-                                    height: 20, width: 20,
-                                    child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2))
-                                : const Text('Create Account', style: TextStyle(fontSize: 16)),
-                          ),
-                        ),
-                      ],
+                  if (_imageFile != null)
+                    Positioned(
+                      bottom: 0, right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                            color: AppTheme.primary, shape: BoxShape.circle),
+                        child: const Icon(Icons.edit, color: Colors.white, size: 13),
+                      ),
                     ),
+                ]),
+              ),
+              const SizedBox(height: 6),
+              const Text('Optional photo', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              const SizedBox(height: 20),
+
+              // ── Fields ───────────────────────────────
+              _field(_usernameCtrl, 'Username', Icons.person_outline,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Required';
+                    if (v.trim().length < 2) return 'Min 2 characters';
+                    return null;
+                  }),
+              _field(_emailCtrl, 'Email', Icons.email_outlined,
+                  type: TextInputType.emailAddress,
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Required';
+                    if (!v.contains('@') || !v.contains('.')) return 'Invalid email';
+                    return null;
+                  }),
+              _field(_passwordCtrl, 'Password', Icons.lock_outline,
+                  obscure: _obscure,
+                  suffix: IconButton(
+                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _obscure = !_obscure),
                   ),
+                  validator: (v) => (v == null || v.length < 6) ? 'Min 6 characters' : null),
+              _field(_confirmPassCtrl, 'Confirm Password', Icons.lock_outline,
+                  obscure: true,
+                  validator: (v) => v != _passwordCtrl.text ? 'Passwords do not match' : null),
+              _field(_numberCtrl, 'Phone Number', Icons.phone_outlined,
+                  type: TextInputType.phone,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+              _field(_cityCtrl, 'City (optional)', Icons.location_city_outlined),
+
+              // ── Gender ───────────────────────────────
+              const SizedBox(height: 8),
+              _label('Gender'),
+              Row(children: [_radio('Male'), const SizedBox(width: 8), _radio('Female')]),
+              const SizedBox(height: 12),
+
+              // ── Account type ─────────────────────────
+              _label('Account Type'),
+              Row(children: [_radioType('Normal User'), const SizedBox(width: 8), _radioType('Worker')]),
+              const SizedBox(height: 12),
+
+              // ── Speciality ───────────────────────────
+              if (_userType == 'Worker') ...[
+                _label('Speciality *'),
+                DropdownButtonFormField<String>(
+                  value: _speciality,
+                  hint: const Text('Select speciality'),
+                  decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                  items: _specialities
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                      .toList(),
+                  onChanged: (v) => setState(() {
+                    _speciality = v;
+                    if (v != 'Other') _otherSpecCtrl.clear();
+                  }),
+                  validator: (v) =>
+                      _userType == 'Worker' && v == null ? 'Select a speciality' : null,
+                ),
+                const SizedBox(height: 12),
+                if (_speciality == 'Other')
+                  _field(_otherSpecCtrl, 'Describe your speciality', Icons.work_outline,
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null),
+              ],
+
+              const SizedBox(height: 24),
+
+              // ── Submit ───────────────────────────────
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _register,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 22, height: 22,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                      : const Text('Create Account', style: TextStyle(fontSize: 16)),
                 ),
               ),
-            ),
+              const SizedBox(height: 20),
+            ]),
           ),
         ),
       ),
     );
   }
+
+  Widget _label(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(text,
+              style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
+        ),
+      );
 
   Widget _field(
     TextEditingController ctrl,
@@ -249,58 +283,33 @@ class _RegisterPageState extends State<RegisterPage> {
           keyboardType: type,
           obscureText: obscure,
           validator: validator,
+          textInputAction: TextInputAction.next,
           decoration: InputDecoration(
             labelText: label,
             prefixIcon: Icon(icon),
             suffixIcon: suffix,
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.75),
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            border: const OutlineInputBorder(),
+            isDense: true,
           ),
         ),
       );
 
   Widget _radio(String value) => Row(mainAxisSize: MainAxisSize.min, children: [
         Radio<String>(
-          value: value, groupValue: _gender,
-          onChanged: (v) => setState(() => _gender = v!),
-        ),
+            value: value,
+            groupValue: _gender,
+            onChanged: (v) => setState(() => _gender = v!)),
         Text(value),
       ]);
 
   Widget _radioType(String value) => Row(mainAxisSize: MainAxisSize.min, children: [
         Radio<String>(
-          value: value, groupValue: _userType,
-          onChanged: (v) => setState(() {
-            _userType = v!;
-            if (v == 'Normal User') _speciality = null;
-          }),
-        ),
+            value: value,
+            groupValue: _userType,
+            onChanged: (v) => setState(() {
+                  _userType = v!;
+                  if (v == 'Normal User') _speciality = null;
+                })),
         Text(value),
       ]);
-
-  Widget _dropdown<T>({
-    required T? value,
-    required String label,
-    required List<T> items,
-    required void Function(T?) onChanged,
-  }) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: DropdownButtonFormField<T>(
-          value: value,
-          decoration: InputDecoration(
-            labelText: label,
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.75),
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-          ),
-          items: items
-              .map((e) => DropdownMenuItem<T>(value: e, child: Text(e.toString())))
-              .toList(),
-          onChanged: onChanged,
-        ),
-      );
 }
