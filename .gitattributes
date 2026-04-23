@@ -1,0 +1,16 @@
+# Tell GitHub how to count languages
+
+# Backend — count Python
+ServerSide/**/*.py linguist-language=Python
+
+# Flutter — count Dart
+amarlo_app/lib/**/*.dart linguist-language=Dart
+
+# Ignore generated/config files from stats
+amarlo_app/android/** linguist-vendored
+amarlo_app/ios/** linguist-vendored
+amarlo_app/linux/** linguist-vendored
+amarlo_app/macos/** linguist-vendored
+amarlo_app/windows/** linguist-vendored
+amarlo_app/web/** linguist-vendored
+amarlo_app/test/** linguist-vendored
