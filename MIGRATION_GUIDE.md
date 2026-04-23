@@ -1,194 +1,196 @@
-# Amarlo v1.0.0 — دليل التغييرات
+# Migration Guide: v1.x → v2.0.0
 
-## ما الذي تغيّر؟
+This guide explains what changed between v1.x and v2.0.0 and what you need to do when upgrading.
 
 ---
 
-## 1. Backend (FastAPI)
+## TL;DR — Do I need to do anything?
 
-### هيكل الملفات الجديد
+| Scenario | Action needed |
+|----------|--------------|
+| Fresh install | Nothing — follow README |
+| Existing DB from v1.x | Nothing — v2 reads old data |
+| Custom Flutter client | Update API base URL (see below) |
+| Custom Backend fork | See backend changes section |
+
+---
+
+## 1. API Base URL Changed
+
+All endpoints now require the `/api/v1/` prefix.
+
 ```
+# v1.x
+POST http://host:8000/auth/login
+GET  http://host:8000/services
+WS   ws://host:8000/ws/chat/{email}
+
+# v2.0.0
+POST http://host:8000/api/v1/auth/login
+GET  http://host:8000/api/v1/services
+WS   ws://host:8000/api/v1/ws/chat/{email}
+```
+
+---
+
+## 2. Authentication Response Changed
+
+Login and register now return an additional `refresh_token`.
+
+```json
+// v1.x response
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer",
+  "user_id": "...",
+  "user_type": "Worker",
+  "email": "..."
+}
+
+// v2.0.0 response
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "expires_in": 1800,
+  "token_type": "bearer",
+  "user_id": "...",
+  "user_type": "Worker",
+  "email": "...",
+  "username": "..."
+}
+```
+
+### New endpoint: Refresh Token
+
+```
+POST /api/v1/auth/refresh
+Content-Type: application/x-www-form-urlencoded
+
+refresh_token=eyJ...
+```
+
+Returns a new `access_token` + `refresh_token` pair.  
+The old refresh token is invalidated (rotation).
+
+---
+
+## 3. Image URL Path Changed
+
+| Version | Upload path | URL |
+|---------|-------------|-----|
+| v1.x    | `/static/`  | `http://host:8000/static/services/file.jpg` |
+| v2.0.0  | `/uploads/` | `http://host:8000/uploads/services/file.jpg` |
+
+**Old images still work** — the Flutter app's `fixImageUrl()` function automatically converts `/static/` paths to `/uploads/` at runtime.
+
+---
+
+## 4. Backend File Structure Changed
+
+```
+# v1.x structure
 ServerSide/
-├── main.py                  ← نقطة الدخول (نظيفة)
-├── requirements.txt
-├── core/
-│   ├── config.py            ← الإعدادات المركزية
-│   ├── database.py          ← اتصال MongoDB
-│   ├── security.py          ← JWT + auth dependencies
-│   ├── images.py            ← رفع وحذف الصور
-│   └── schemas.py           ← Pydantic models مشتركة
-├── routers/
-│   ├── auth.py              ← /auth/*
-│   ├── users.py             ← /users/*
-│   ├── services.py          ← /services/*
-│   ├── posts.py             ← /posts/*
-│   ├── requests.py          ← /requests/*
-│   ├── chat.py              ← /ws/* + /messages/* + /conversations/*
-│   ├── safe_area.py         ← /safe-area/*
-│   └── reports.py           ← /reports/*
-└── uploads/
-    ├── profiles/
-    ├── services/
-    └── safe_area/
-```
+├── main.py
+└── routers/
+    ├── auth.py
+    ├── services.py
+    └── ...
 
-### تغييرات الـ API
-
-#### الصور
-| قبل | بعد |
-|-----|-----|
-| `imageBase64: "data:image..."` في JSON | `image_url: "http://server/uploads/..."` |
-| POST مع base64 string في body | POST multipart/form-data مع file |
-| حجم طلب ضخم (MBs في JSON) | طلب خفيف + ملف منفصل |
-
-#### Auth endpoints
-| قبل | بعد |
-|-----|-----|
-| `POST /login` | `POST /auth/login` |
-| `POST /register` | `POST /auth/register` (multipart) |
-| `GET /user-info` | `GET /auth/me` |
-
-#### Services
-| قبل | بعد |
-|-----|-----|
-| `POST /add-service` | `POST /services` (multipart) |
-| `PUT /update-service/{id}` | `PUT /services/{id}` (multipart) |
-| `DELETE /delete-service/{id}` | `DELETE /services/{id}` |
-| بدون pagination | `?page=1&size=20` |
-
-#### Requests
-| قبل | بعد |
-|-----|-----|
-| `GET /user-requests/{user_id}` | `GET /requests/user/{user_id}` |
-| `GET /worker-requests/{email}` | `GET /requests/worker/{email}` |
-| `DELETE /requests/{id}` (reject/delete) | `DELETE /requests/{id}` (نفس الـ endpoint، يتحقق من الـ role تلقائياً) |
-
-#### Safe Area — تغيير جوهري
-| قبل | بعد |
-|-----|-----|
-| رفع base64 في DB | رفع ملف على disk + URL في DB |
-| عرض الصورة كـ base64 | `GET /safe-area/{id}/preview` (مع watermark) |
-| تأكيد من طرف واحد | `POST /safe-area/{id}/confirm` من الطرفين |
-| تحميل فوري | تحميل بعد تأكيد الطرفين فقط |
-
----
-
-## 2. Flutter
-
-### هيكل الملفات الجديد
-```
-lib/
-├── core/
-│   └── constants.dart       ← جميع URLs في مكان واحد
-├── models/
-│   └── app_models.dart      ← جميع الموديلات
-├── services/
-│   ├── http_client.dart     ← HTTP client موحّد
-│   ├── api_service.dart     ← جميع API calls
-│   └── websocket_service.dart ← WebSocket للـ chat والإشعارات
-├── providers/
-│   ├── auth_provider.dart   ← إدارة حالة المستخدم
-│   └── request_provider.dart ← إدارة الطلبات
-└── ...
-```
-
-### تغييرات في Flutter
-
-#### الصور
-```dart
-// ❌ قبل
-Image.memory(base64Decode(service.imageBase64!))
-
-// ✅ بعد
-CachedNetworkImage(
-  imageUrl: service.imageUrl ?? '',
-  placeholder: (_, __) => const CircularProgressIndicator(),
-  errorWidget: (_, __, ___) => const Icon(Icons.image),
-)
-```
-
-#### API calls
-```dart
-// ❌ قبل (في كل screen بشكل مختلف)
-final response = await http.get(
-  Uri.parse('http://10.0.2.2:8000/services'),
-  headers: {'Authorization': 'Bearer $accessToken'},
-);
-
-// ✅ بعد (موحّد)
-final paged = await ApiService.getServices(category: 'Design');
-```
-
-#### Auth
-```dart
-// ❌ قبل
-SharedPreferences.getInstance() في كل مكان
-
-// ✅ بعد
-context.read<AuthProvider>().user
-context.read<AuthProvider>().isWorker
-context.read<AuthProvider>().login(email, password)
+# v2.0.0 structure
+ServerSide/
+├── main.py
+└── app/
+    └── api/
+        └── v1/
+            └── endpoints/
+                ├── auth.py
+                ├── services.py
+                └── ...
 ```
 
 ---
 
-## 3. خطوات التشغيل
+## 5. Service Request Endpoint Fixed
 
-### Backend
+In v1.x, requesting a service incorrectly routed to the posts/offers endpoint causing a 404 error.
+
+```
+# v1.x (broken)
+POST /posts/{service_id}/offers
+
+# v2.0.0 (correct)
+POST /api/v1/services/{service_id}/request
+```
+
+---
+
+## 6. WebSocket Changes
+
+The chat WebSocket now:
+- Sends `{"type": "connected"}` immediately on connect
+- Responds to `{"type": "ping"}` with `{"type": "pong"}`
+- Does **not** close after inactivity timeout (v1.x closed after 120s)
+
+```
+# Connect confirmation (new in v2.0.0)
+← {"type": "connected", "email": "user@example.com"}
+
+# Ping/pong
+→ {"type": "ping"}
+← {"type": "pong"}
+```
+
+---
+
+## 7. Database — No Migration Required
+
+The v2.0.0 backend is backward compatible with v1.x data.
+
+- Old documents with `worker_name`/`worker_id` fields are handled automatically
+- Index creation is fail-safe — duplicate data in old DB won't stop the server
+- New documents use `worker_email`/`worker_username` fields
+
+---
+
+## 8. Environment Variables
+
+v2.0.0 requires a `.env` file (copy from `.env.example`).
+
 ```bash
 cd ServerSide
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+cp .env.example .env
+# Edit .env with your values
 ```
 
-### Flutter (Android)
-```bash
-flutter run --dart-define=API_HOST=10.0.2.2
-```
+New variables in v2.0.0:
 
-### Flutter (iOS Simulator)
-```bash
-flutter run --dart-define=API_HOST=127.0.0.1
-```
-
-### Flutter (جهاز حقيقي)
-```bash
-flutter run --dart-define=API_HOST=192.168.1.X  # IP جهازك
+```env
+# New in v2.0.0
+REFRESH_TOKEN_EXPIRE_DAYS=30
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+ENVIRONMENT=development
+APP_NAME=Amarlo API
+APP_VERSION=2.0.0
 ```
 
 ---
 
-## 4. قاعدة البيانات
+## 9. Checklist for Upgrading
 
-لا تحتاج إلى migration — MongoDB schema-less.
-لكن السجلات القديمة ستحتوي على `imageBase64` وليس `image_url`.
-للتحويل، شغّل هذا الـ script:
-
-```python
-# migration_script.py (شغّله مرة واحدة فقط)
-import base64, uuid, os
-from pymongo import MongoClient
-
-client = MongoClient("mongodb://localhost:27017/")
-db = client["flutter-app2"]
-
-for col_name in ["users-register", "services"]:
-    col = db[col_name]
-    for doc in col.find({"imageBase64": {"$exists": True}}):
-        # احفظ الصورة على disk
-        folder = "profiles" if col_name == "users-register" else "services"
-        filename = f"{uuid.uuid4().hex}.jpg"
-        path = f"uploads/{folder}/{filename}"
-        os.makedirs(f"uploads/{folder}", exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(base64.b64decode(doc["imageBase64"]))
-        # حدّث السجل
-        col.update_one(
-            {"_id": doc["_id"]},
-            {
-                "$set": {"image_url": f"http://10.0.2.2:8000/uploads/{folder}/{filename}"},
-                "$unset": {"imageBase64": ""}
-            }
-        )
-        print(f"Migrated {doc['_id']}")
 ```
+[ ] Copy new ServerSide/ folder
+[ ] Run: cp .env.example .env
+[ ] Edit .env with your MONGO_URI and SECRET_KEY
+[ ] Run: pip install -r requirements.txt
+[ ] Copy new Amarlo/lib/ folder
+[ ] Run: flutter pub get
+[ ] Start MongoDB
+[ ] Start backend: uvicorn main:app --host 0.0.0.0 --port 8000
+[ ] Run Flutter with correct API_HOST
+```
+
+---
+
+## Questions?
+
+Check the API docs at `http://localhost:8000/docs` after starting the server.
