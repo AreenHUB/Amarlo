@@ -147,15 +147,17 @@ async def _handle_message(msg: dict, sender: dict, sender_ws: WebSocket) -> None
 
     payload = json.dumps(doc, ensure_ascii=False)
 
-    # إرسال للمستلم
+    # إرسال للمستلم فقط — المرسل يعرض الرسالة Optimistically في Flutter
     for conn in list(active_chat_connections.get(recipient_email, set())):
         try:
             await conn.send_text(payload)
         except Exception:
             active_chat_connections.get(recipient_email, set()).discard(conn)
 
-    # Echo للمرسل (كل أجهزته)
+    # Echo للمرسل على أجهزته الأخرى فقط (ليس نفس الـ connection الذي أرسل)
     for conn in list(active_chat_connections.get(sender["email"], set())):
+        if conn is sender_ws:
+            continue
         try:
             await conn.send_text(payload)
         except Exception:

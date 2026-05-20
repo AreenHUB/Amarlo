@@ -31,25 +31,59 @@ class AppNotification {
 
   IconData get icon {
     switch (type) {
-      case 'new_message':      return Icons.chat_bubble;
-      case 'new_request':      return Icons.assignment_add;
-      case 'new_offer':        return Icons.local_offer;
-      case 'request_accepted': return Icons.check_circle;
-      case 'request_rejected': return Icons.cancel;
-      case 'request_ready':    return Icons.inventory_2;
-      case 'deal_complete':    return Icons.handshake;
-      default:                 return Icons.notifications;
+      case 'new_message':               return Icons.chat_bubble;
+      case 'new_request':               return Icons.assignment_add;
+      case 'new_offer':                 return Icons.local_offer;
+      case 'request_accepted':          return Icons.check_circle;
+      case 'request_rejected':          return Icons.cancel;
+      case 'request_ready':             return Icons.inventory_2;
+      case 'deal_complete':             return Icons.handshake;
+      case 'offer_you_accepted_confirmed': return Icons.check_circle_outline;
+      case 'price_change_proposed':        return Icons.price_change;
+      case 'price_change_accepted':        return Icons.attach_money;
+      case 'price_change_rejected':        return Icons.money_off;
+      case 'safe_area_opened':             return Icons.lock_open;
+      case 'safe_area_session_invite':     return Icons.description_outlined;
+      case 'safe_area_session_accepted': return Icons.verified;
+      case 'safe_area_session_rejected': return Icons.cancel_outlined;
+      case 'offer_accepted_set_deadline':
+      case 'offer_accepted_inperson':    return Icons.check_circle_outline;
+      case 'deadline_proposed':          return Icons.schedule;
+      case 'deadline_confirmed':         return Icons.lock_open;
+      case 'deadline_rejected':          return Icons.schedule_send;
+      case 'work_uploaded':              return Icons.upload_file;
+      case 'payment_received':           return Icons.payments;
+      case 'worker_confirmed_waiting':
+      case 'user_confirmed_waiting':     return Icons.how_to_vote_outlined;
+      default:                           return Icons.notifications;
     }
   }
 
   Color get color {
     switch (type) {
-      case 'new_message':      return AppTheme.info;
-      case 'request_accepted': return AppTheme.success;
-      case 'request_ready':    return AppTheme.info;
-      case 'deal_complete':    return AppTheme.success;
-      case 'request_rejected': return AppTheme.error;
-      default:                 return AppTheme.primary;
+      case 'new_message':               return AppTheme.info;
+      case 'request_accepted':
+      case 'offer_accepted_set_deadline':
+      case 'offer_accepted_inperson':
+      case 'deadline_confirmed':
+      case 'safe_area_session_accepted':
+      case 'offer_you_accepted_confirmed':
+      case 'safe_area_opened':           return AppTheme.success;
+      case 'safe_area_session_invite':   return AppTheme.primary;
+      case 'safe_area_session_rejected':
+      case 'price_change_rejected':      return AppTheme.error;
+      case 'price_change_proposed':      return Colors.orange;
+      case 'price_change_accepted':      return AppTheme.success;
+      case 'request_ready':
+      case 'deadline_proposed':         return AppTheme.info;
+      case 'deal_complete':             return AppTheme.success;
+      case 'request_rejected':
+      case 'deadline_rejected':          return AppTheme.error;
+      case 'work_uploaded':              return AppTheme.info;
+      case 'payment_received':           return AppTheme.success;
+      case 'worker_confirmed_waiting':
+      case 'user_confirmed_waiting':     return Colors.orange;
+      default:                           return AppTheme.primary;
     }
   }
 }
@@ -62,24 +96,116 @@ class NotificationManager extends ChangeNotifier {
   static NotificationManager get instance => _instance;
   NotificationManager._();
 
+  static const _maxNotifications = 50;
+
   final List<AppNotification> _notifications = [];
   OverlayState? _overlay;
-  BuildContext? _navContext; // للتنقل من الـ Toast
+
+  // الـ email للمحادثة المفتوحة حالياً — لكبح Toast رسائلها
+  String? _activeChatEmail;
+
+  void setActiveChatEmail(String? email) => _activeChatEmail = email;
+
+  // listeners للـ chat messages (من ChatScreen)
+  final List<void Function(Map<String, dynamic>)> _messageListeners = [];
+
+  void addMessageListener(void Function(Map<String, dynamic>) fn) {
+    _messageListeners.add(fn);
+  }
+
+  void removeMessageListener(void Function(Map<String, dynamic>) fn) {
+    _messageListeners.remove(fn);
+  }
+
+  // callback يُسجَّل من NavigationBarPage لإعادة تحميل الطلبات فوراً
+  // عند وصول أي event متعلق بالطلبات (accept, reject, ready, complete)
+  VoidCallback? _onRequestsChanged;
+
+  void registerRequestsRefresh(VoidCallback fn) => _onRequestsChanged = fn;
+
+  // callback يُسجَّل من SafeAreaPage لإعادة تحميلها فوراً
+  VoidCallback? _onSafeAreaChanged;
+
+  void registerSafeAreaRefresh(VoidCallback fn) => _onSafeAreaChanged = fn;
+  void unregisterSafeAreaRefresh() => _onSafeAreaChanged = null;
+
+  // callback يُسجَّل من DashboardScreen لإعادة تحميل الـ offers فوراً
+  VoidCallback? _onOffersChanged;
+
+  void registerOffersRefresh(VoidCallback fn) => _onOffersChanged = fn;
+  void unregisterOffersRefresh() => _onOffersChanged = null;
+
+  // ── D1: تجميع إشعارات الـ Offers (debounce 5 دقائق) ──
+  Timer? _offerBatchTimer;
+  int    _pendingOfferCount = 0;
+  String _lastOfferPostTitle = '';
+
+  void _handleNewOffer(Map<String, dynamic> data) {
+    _onOffersChanged?.call();
+    _pendingOfferCount++;
+    _lastOfferPostTitle = data['post_title'] as String? ?? '';
+
+    _offerBatchTimer?.cancel();
+
+    if (_pendingOfferCount == 1) {
+      // أول offer → إشعار فوري
+      add(AppNotification(
+        type: 'new_offer',
+        title: 'New Offer',
+        body: '${data['worker_username'] ?? 'Worker'} offered '
+            '\$${data['price'] ?? 0} on "$_lastOfferPostTitle"',
+        data: data,
+      ));
+    } else {
+      // offers لاحقة → انتظر 5 دقائق ثم أرسل ملخصاً
+      _offerBatchTimer = Timer(const Duration(minutes: 5), () {
+        final count = _pendingOfferCount;
+        _pendingOfferCount = 0;
+        add(AppNotification(
+          type: 'new_offer',
+          title: '$count New Offers',
+          body: 'You received $count new offers on "$_lastOfferPostTitle"',
+          data: data,
+        ));
+      });
+    }
+  }
+
+  // callback يُسجَّل من NavigationBarPage للتنقل عند الضغط على الإشعار
+  // يستقبل نوع الإشعار ويتولى التوجيه الصحيح
+  void Function(String type, Map<String, dynamic>? data)? _onNotifTap;
+
+  void registerNotifTapHandler(
+      void Function(String type, Map<String, dynamic>? data) fn) {
+    _onNotifTap = fn;
+  }
 
   List<AppNotification> get notifications =>
       List.unmodifiable(_notifications.reversed.toList());
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
 
+  // عدد الرسائل غير المقروءة — يُحدَّث من NotificationWebSocket الرئيسي
+  int _unreadMessageCount = 0;
+  int get unreadMessageCount => _unreadMessageCount;
+
+  void updateUnreadMessageCount(int count) {
+    if (_unreadMessageCount == count) return;
+    _unreadMessageCount = count;
+    notifyListeners();
+  }
+
   void init(OverlayState overlay) => _overlay = overlay;
 
-  /// يُسجَّل من NavigationBarPage لإتاحة التنقل
-  void setNavContext(BuildContext ctx) => _navContext = ctx;
+  void setNavContext(BuildContext ctx) {} // no-op — navigation via callbacks now
 
   // ─── Add ────────────────────────────────────────────
   void add(AppNotification notification, {bool showToast = true}) {
-    // new_message: لا يُحفظ في القائمة — فقط Toast لحظي
     if (!notification.isEphemeral) {
       _notifications.add(notification);
+      // حد أقصى 50 — احذف الأقدم عند التجاوز
+      if (_notifications.length > _maxNotifications) {
+        _notifications.removeAt(0);
+      }
       notifyListeners();
     }
 
@@ -87,10 +213,20 @@ class NotificationManager extends ChangeNotifier {
       _showToast(notification);
     }
 
-    // صوت/haptic
     try {
       SystemSound.play(SystemSoundType.alert);
     } catch (_) {}
+  }
+
+  // ─── Delete ──────────────────────────────────────────
+  void remove(AppNotification n) {
+    _notifications.remove(n);
+    notifyListeners();
+  }
+
+  void clearAll() {
+    _notifications.clear();
+    notifyListeners();
   }
 
   // ─── Handle WS event ────────────────────────────────
@@ -100,7 +236,13 @@ class NotificationManager extends ChangeNotifier {
 
     switch (type) {
       case 'new_message':
-        // لحظي فقط — لا يُضاف للقائمة
+        // أبلغ أي ChatScreen مفتوحة أولاً
+        for (final fn in List.of(_messageListeners)) {
+          fn(data);
+        }
+        // لا تُظهر Toast إذا كان المستخدم في محادثة مع نفس المُرسِل
+        final senderEmail = data['sender_email'] as String? ?? '';
+        if (senderEmail == _activeChatEmail) break;
         notif = AppNotification(
           type: 'new_message',
           title: data['sender_username'] ?? 'New Message',
@@ -110,6 +252,7 @@ class NotificationManager extends ChangeNotifier {
         break;
 
       case 'new_request':
+        _onRequestsChanged?.call();
         notif = AppNotification(
           type: 'new_request',
           title: 'New Service Request',
@@ -119,24 +262,21 @@ class NotificationManager extends ChangeNotifier {
         break;
 
       case 'new_offer':
-        notif = AppNotification(
-          type: 'new_offer',
-          title: 'New Offer',
-          body: '${data['worker_username'] ?? 'Worker'} offered \$${data['price'] ?? 0}',
-          data: data,
-        );
-        break;
+        _handleNewOffer(data);
+        return; // _handleNewOffer يتولى الـ add بنفسه
 
       case 'request_accepted':
+        _onRequestsChanged?.call();
         notif = AppNotification(
           type: 'request_accepted',
-          title: '✅ Request Accepted',
+          title: 'Request Accepted',
           body: '"${data['service_name'] ?? ''}" was accepted',
           data: data,
         );
         break;
 
       case 'request_rejected':
+        _onRequestsChanged?.call();
         notif = AppNotification(
           type: 'request_rejected',
           title: 'Request Declined',
@@ -146,19 +286,221 @@ class NotificationManager extends ChangeNotifier {
         break;
 
       case 'request_ready':
+        _onRequestsChanged?.call();
+        _onSafeAreaChanged?.call();
         notif = AppNotification(
           type: 'request_ready',
-          title: '📦 Work Ready',
+          title: 'Work Ready',
           body: '"${data['service_name'] ?? ''}" is ready for review',
           data: data,
         );
         break;
 
       case 'deal_complete':
+        _onRequestsChanged?.call();
+        _onSafeAreaChanged?.call();
         notif = AppNotification(
           type: 'deal_complete',
-          title: '🎉 Deal Completed',
+          title: 'Deal Completed',
           body: '"${data['service_name'] ?? ''}" is complete',
+          data: data,
+        );
+        break;
+
+      case 'safe_area_session_invite':
+        notif = AppNotification(
+          type: 'safe_area_session_invite',
+          title: 'Contract Invitation',
+          body: '${data['worker_name'] ?? 'Worker'} sent you a Safe Area '
+              'contract for "${data['title'] ?? ''}". '
+              'Expires in ${data['expires_in_hrs'] ?? 6}h.',
+          data: data,
+        );
+        break;
+
+      case 'safe_area_session_accepted':
+        notif = AppNotification(
+          type: 'safe_area_session_accepted',
+          title: 'Contract Accepted!',
+          body: '${data['user_name'] ?? 'Client'} accepted your contract '
+              '"${data['title'] ?? ''}". You can now start working.',
+          data: data,
+        );
+        break;
+
+      case 'safe_area_session_rejected':
+        notif = AppNotification(
+          type: 'safe_area_session_rejected',
+          title: 'Contract Rejected',
+          body: '${data['user_name'] ?? 'Client'} rejected the contract.',
+          data: data,
+        );
+        break;
+
+      case 'price_change_proposed':
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'price_change_proposed',
+          title: 'New Price Proposed',
+          body: '${data['worker_username'] ?? 'Worker'} proposes '
+              '\$${data['new_price'] ?? 0} (was \$${data['old_price'] ?? 0}) '
+              'for "${data['service_name'] ?? ''}". Tap to review.',
+          data: data,
+        );
+        break;
+
+      case 'price_change_accepted':
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'price_change_accepted',
+          title: 'Price Change Accepted!',
+          body: 'New price \$${data['new_price'] ?? 0} confirmed for '
+              '"${data['service_name'] ?? ''}".',
+          data: data,
+        );
+        break;
+
+      case 'price_change_rejected':
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'price_change_rejected',
+          title: 'Price Change Rejected',
+          body: 'Client kept the original price for '
+              '"${data['service_name'] ?? ''}".',
+          data: data,
+        );
+        break;
+
+      case 'offer_you_accepted_confirmed':
+        _onRequestsChanged?.call();
+        notif = AppNotification(
+          type: 'offer_you_accepted_confirmed',
+          title: 'Offer Accepted!',
+          body: 'You accepted ${data['worker_username'] ?? 'Worker'}\'s offer on '
+              '"${data['service_name'] ?? ''}". '
+              'Waiting for them to set a delivery deadline.',
+          data: data,
+        );
+        break;
+
+      case 'safe_area_opened':
+        _onRequestsChanged?.call();
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'safe_area_opened',
+          title: 'Safe Area Is Now Open!',
+          body: 'The worker will upload their work for '
+              '"${data['service_name'] ?? ''}". '
+              'You\'ll be notified when it\'s ready to review.',
+          data: data,
+        );
+        break;
+
+      case 'offer_accepted_set_deadline':
+        _onRequestsChanged?.call();
+        notif = AppNotification(
+          type: 'offer_accepted_set_deadline',
+          title: 'Offer Accepted!',
+          body: '${data['user_name'] ?? 'User'} accepted your offer on '
+              '"${data['service_name'] ?? ''}". '
+              'You have 6 hours to propose a delivery deadline.',
+          data: data,
+        );
+        break;
+
+      case 'offer_accepted_inperson':
+        _onRequestsChanged?.call();
+        notif = AppNotification(
+          type: 'offer_accepted_inperson',
+          title: 'Offer Accepted!',
+          body: '${data['user_name'] ?? 'User'} accepted your offer on '
+              '"${data['service_name'] ?? ''}". '
+              'Open chat to coordinate the in-person meeting.',
+          data: data,
+        );
+        break;
+
+      case 'deadline_proposed':
+        _onRequestsChanged?.call();
+        notif = AppNotification(
+          type: 'deadline_proposed',
+          title: 'Deadline Proposed — Action Required',
+          body: '${data['worker_name'] ?? 'Worker'} proposed a delivery deadline '
+              'for "${data['service_name'] ?? ''}". '
+              'You have 6 hours to approve or reject it.',
+          data: data,
+        );
+        break;
+
+      case 'deadline_confirmed':
+        _onRequestsChanged?.call();
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'deadline_confirmed',
+          title: 'Deadline Confirmed — Safe Area Active!',
+          body: '${data['user_name'] ?? 'Client'} approved the deadline for '
+              '"${data['service_name'] ?? ''}". '
+              'Safe Area is now open. Upload your work.',
+          data: data,
+        );
+        break;
+
+      case 'deadline_rejected':
+        _onRequestsChanged?.call();
+        notif = AppNotification(
+          type: 'deadline_rejected',
+          title: 'Deadline Rejected',
+          body: '${data['user_name'] ?? 'Client'} rejected your proposed deadline '
+              'for "${data['service_name'] ?? ''}". '
+              'Propose a new deadline.',
+          data: data,
+        );
+        break;
+
+      case 'work_uploaded':
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'work_uploaded',
+          title: 'Work Uploaded — Review Required',
+          body: '${data['worker_username'] ?? 'Worker'} uploaded the work for '
+              '"${data['service_name'] ?? ''}". '
+              'Review it and send payment to unlock the original file.',
+          data: data,
+        );
+        break;
+
+      case 'payment_received':
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'payment_received',
+          title: 'Payment Received!',
+          body: '${data['user_username'] ?? 'Client'} sent \$${data['amount'] ?? 0} '
+              'for "${data['service_name'] ?? ''}". '
+              'Confirm the delivery to release the funds.',
+          data: data,
+        );
+        break;
+
+      case 'worker_confirmed_waiting':
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'worker_confirmed_waiting',
+          title: 'Worker Confirmed — Your Turn',
+          body: '${data['worker_username'] ?? 'Worker'} confirmed the delivery of '
+              '"${data['service_name'] ?? ''}". '
+              'Please confirm to complete the deal.',
+          data: data,
+        );
+        break;
+
+      case 'user_confirmed_waiting':
+        _onSafeAreaChanged?.call();
+        notif = AppNotification(
+          type: 'user_confirmed_waiting',
+          title: 'Client Confirmed — Your Turn',
+          body: '${data['user_username'] ?? 'Client'} confirmed the delivery of '
+              '"${data['service_name'] ?? ''}". '
+              'Please confirm to release the payment.',
           data: data,
         );
         break;
@@ -210,24 +552,17 @@ class NotificationManager extends ChangeNotifier {
 
   /// عند الضغط على الـ Toast
   void _handleTap(AppNotification n) {
-    if (_navContext == null) return;
-    final ctx = _navContext!;
-
-    switch (n.type) {
-      case 'new_message':
-        final senderEmail    = n.data?['sender_email']    as String? ?? '';
-        final senderUsername = n.data?['sender_username'] as String? ?? 'User';
-        if (senderEmail.isNotEmpty && _onChatOpen != null) {
-          _onChatOpen!(senderEmail, senderUsername);
-        }
-        break;
-
-      default:
-        Navigator.of(ctx).push(
-          MaterialPageRoute(builder: (_) => const NotificationInboxScreen()),
-        );
-        break;
+    if (n.type == 'new_message') {
+      final senderEmail    = n.data?['sender_email']    as String? ?? '';
+      final senderUsername = n.data?['sender_username'] as String? ?? 'User';
+      if (senderEmail.isNotEmpty && _onChatOpen != null) {
+        _onChatOpen!(senderEmail, senderUsername);
+      }
+      return;
     }
+
+    // كل الـ events الأخرى تُعالَج من NavigationBarPage
+    _onNotifTap?.call(n.type, n.data);
   }
 
   String _trim(dynamic msg) {
@@ -366,10 +701,26 @@ class NotificationInboxScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Activity'),
         actions: [
-          TextButton(
-            onPressed: NotificationManager.instance.markAllRead,
-            child: const Text('Mark all read',
-                style: TextStyle(color: Colors.white)),
+          ListenableBuilder(
+            listenable: NotificationManager.instance,
+            builder: (_, __) {
+              final hasAny = NotificationManager.instance.notifications.isNotEmpty;
+              final hasUnread = NotificationManager.instance.unreadCount > 0;
+              return Row(mainAxisSize: MainAxisSize.min, children: [
+                if (hasUnread)
+                  TextButton(
+                    onPressed: NotificationManager.instance.markAllRead,
+                    child: const Text('Mark all read',
+                        style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  ),
+                if (hasAny)
+                  IconButton(
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    tooltip: 'Clear all',
+                    onPressed: () => _confirmClearAll(context),
+                  ),
+              ]);
+            },
           ),
         ],
       ),
@@ -397,58 +748,96 @@ class NotificationInboxScreen extends StatelessWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (_, i) {
               final n = notifs[i];
-              return GestureDetector(
-                onTap: () => NotificationManager.instance.markRead(n),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
+              return Dismissible(
+                key: ValueKey(n.createdAt.microsecondsSinceEpoch),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 16),
                   decoration: BoxDecoration(
-                    color: n.isRead
-                        ? Colors.white
-                        : n.color.withValues(alpha: 0.05),
+                    color: Colors.red.shade400,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: n.isRead
-                          ? Colors.grey.withValues(alpha: 0.2)
-                          : n.color.withValues(alpha: 0.3),
-                    ),
                   ),
-                  child: Row(children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                          color: n.color.withValues(alpha: 0.1),
-                          shape: BoxShape.circle),
-                      child: Icon(n.icon, color: n.color, size: 20),
+                  child: const Icon(Icons.delete_outline, color: Colors.white),
+                ),
+                onDismissed: (_) => NotificationManager.instance.remove(n),
+                child: GestureDetector(
+                  onTap: () => NotificationManager.instance.markRead(n),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: n.isRead
+                          ? Colors.white
+                          : n.color.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: n.isRead
+                            ? Colors.grey.withValues(alpha: 0.2)
+                            : n.color.withValues(alpha: 0.3),
+                      ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Expanded(child: Text(n.title, style: TextStyle(
-                            fontWeight: n.isRead
-                                ? FontWeight.normal : FontWeight.bold,
-                            fontSize: 14,
-                          ))),
-                          if (!n.isRead)
-                            Container(width: 8, height: 8,
-                                decoration: BoxDecoration(
-                                    color: n.color, shape: BoxShape.circle)),
-                        ]),
-                        const SizedBox(height: 3),
-                        Text(n.body, style: const TextStyle(
-                            color: Colors.grey, fontSize: 13)),
-                        const SizedBox(height: 4),
-                        Text(_timeAgo(n.createdAt), style: const TextStyle(
-                            color: Colors.grey, fontSize: 11)),
-                      ],
-                    )),
-                  ]),
+                    child: Row(children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                            color: n.color.withValues(alpha: 0.1),
+                            shape: BoxShape.circle),
+                        child: Icon(n.icon, color: n.color, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            Expanded(child: Text(n.title, style: TextStyle(
+                              fontWeight: n.isRead
+                                  ? FontWeight.normal : FontWeight.bold,
+                              fontSize: 14,
+                            ))),
+                            if (!n.isRead)
+                              Container(width: 8, height: 8,
+                                  decoration: BoxDecoration(
+                                      color: n.color, shape: BoxShape.circle)),
+                          ]),
+                          const SizedBox(height: 3),
+                          Text(n.body, style: const TextStyle(
+                              color: Colors.grey, fontSize: 13)),
+                          const SizedBox(height: 4),
+                          Text(_timeAgo(n.createdAt), style: const TextStyle(
+                              color: Colors.grey, fontSize: 11)),
+                        ],
+                      )),
+                    ]),
+                  ),
                 ),
               );
             },
           );
         },
+      ),
+    );
+  }
+
+  void _confirmClearAll(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Clear all notifications?'),
+        content: const Text('This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              NotificationManager.instance.clearAll();
+            },
+            child: const Text('Clear all',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
       ),
     );
   }

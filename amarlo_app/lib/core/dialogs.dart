@@ -3,6 +3,86 @@ import 'package:flutter/material.dart';
 import 'theme.dart';
 
 // ══════════════════════════════════════════════
+//  Auth Required dialog
+// ══════════════════════════════════════════════
+/// يُعرض عندما يحاول غير المسجّل تنفيذ إجراء يتطلب تسجيل الدخول.
+/// يُعيد true إذا ضغط المستخدم "Login"، false إذا ضغط "Register".
+/// يُعيد null إذا أغلق بدون اختيار.
+Future<void> showAuthRequired(
+  BuildContext context, {
+  required void Function() onLogin,
+  required void Function() onRegister,
+}) {
+  return showModalBottomSheet(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppTheme.radiusLg)),
+    ),
+    builder: (_) => Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.lock_outline, size: 36, color: AppTheme.primary),
+          ),
+          const SizedBox(height: 16),
+          Text('Login Required', style: AppTheme.h3),
+          const SizedBox(height: 8),
+          Text(
+            'You need to be logged in to do this.\nJoin Amarlo to connect with top freelancers.',
+            textAlign: TextAlign.center,
+            style: AppTheme.body.copyWith(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 28),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  onRegister();
+                },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  side: const BorderSide(color: AppTheme.primary),
+                ),
+                child: const Text('Create Account'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  onLogin();
+                },
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text('Login'),
+              ),
+            ),
+          ]),
+        ],
+      ),
+    ),
+  );
+}
+
+// ══════════════════════════════════════════════
 //  Snackbars
 // ══════════════════════════════════════════════
 void showSuccess(BuildContext context, String message) {

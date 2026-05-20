@@ -1,6 +1,7 @@
 from app.db.mongodb import (
     blocks_collection,
     close_db,
+    conduct_reports_collection,
     ensure_indexes,
     messages_collection,
     payments_collection,
@@ -10,6 +11,7 @@ from app.db.mongodb import (
     requests_collection,
     reviews_collection,
     safe_area_collection,
+    safe_area_sessions_collection,
     services_collection,
     users_collection,
 )
@@ -21,7 +23,9 @@ __all__ = [
     "requests_collection",
     "messages_collection",
     "reviews_collection",
+    "conduct_reports_collection",
     "safe_area_collection",
+    "safe_area_sessions_collection",
     "payments_collection",
     "reports_collection",
     "blocks_collection",

@@ -18,13 +18,13 @@ class ServiceOut(BaseModel):
     image_url:       Optional[str] = None
     description:     str
     category:        Optional[str] = None
+    delivery_type:   str = "online"   # "online" | "in_person"
 
     @classmethod
     def from_doc(cls, doc: dict, worker_username: str = "Unknown") -> "ServiceOut":
-        # دعم البيانات القديمة (worker_id/worker_name) والجديدة (worker_email/worker_username)
         worker_email = (
             doc.get("worker_email") or
-            doc.get("worker_id", "")   # بعض السجلات القديمة تستخدم worker_id
+            doc.get("worker_id", "")
         )
         final_username = (
             worker_username
@@ -41,4 +41,5 @@ class ServiceOut(BaseModel):
             image_url=       doc.get("image_url"),
             description=     doc.get("description", ""),
             category=        doc.get("category"),
+            delivery_type=   doc.get("delivery_type", "online"),
         )

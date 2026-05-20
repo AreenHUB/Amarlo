@@ -1,10 +1,12 @@
 // lib/widgets/navigation_bar.dart
-import 'package:badges/badges.dart' as badges;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
+import '../models/app_models.dart';
+import '../providers/request_provider.dart';
 import '../screens/chat_screen.dart';
+import '../screens/safe_area_page.dart';
 import '../providers/auth_provider.dart';
 import '../screens/home.dart';
 import '../screens/login.dart';
@@ -14,6 +16,7 @@ import '../screens/userScreen/UserRequestsPage.dart';
 import '../screens/userScreen/normal_profile_page.dart';
 import '../screens/userScreen/user_dashboard.dart' as user;
 import '../screens/worker_profile.dart';
+import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../services/websocket_service.dart';
 import 'WorkerDashboardContainer.dart';
@@ -66,21 +69,120 @@ class _NavigationBarPageState extends State<NavigationBarPage> {
     _notifWs = NotificationWebSocket(
       userEmail: email,
       token: auth.token!,
-      onUnreadCount: (_) {},
+      onUnreadCount: (count) {
+        NotificationManager.instance.updateUnreadMessageCount(count);
+      },
       onNotification: (event) {
         NotificationManager.instance.handleEvent(event);
       },
     )..connect();
 
-    // تسجيل opener لفتح ChatScreen من Toast الإشعارات
-    NotificationManager.instance.registerChatOpener((email, username) {
+    // تسجيل callback لإعادة تحميل الطلبات فوراً عند وصول أي event
+    NotificationManager.instance.registerRequestsRefresh(() {
       if (!mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ChatScreen(
-          recipientEmail: email,
-          recipientUsername: username,
+      final req    = context.read<RequestProvider>();
+      final auth2  = context.read<AuthProvider>();
+      if (auth2.user == null) return;
+      if (auth2.isWorker) {
+        req.fetchWorkerRequests(auth2.user!.email);
+      } else {
+        req.fetchUserRequests(auth2.user!.id);
+      }
+    });
+
+    // تسجيل opener لفتح ChatScreen من Toast الإشعارات
+    // pushAndRemoveUntil: يُزيل كل الشاشات فوق NavigationBarPage ثم يفتح ChatScreen
+    // هذا يضمن أن Back يرجع مباشرة للـ NavigationBarPage بضغطة واحدة فقط
+    NotificationManager.instance.registerChatOpener((recipientEmail, username) {
+      if (!mounted) return;
+      final nav = Navigator.of(context);
+      // إذا كانت ChatScreen مفتوحة بالفعل مع نفس الشخص، لا نفتح شاشة جديدة
+      nav.pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            recipientEmail: recipientEmail,
+            recipientUsername: username,
+          ),
         ),
-      ));
+        // أبقِ فقط الـ NavigationBarPage (أول route في الـ stack)
+        (route) => route.isFirst,
+      );
+    });
+
+    // التوجيه عند الضغط على الإشعار
+    NotificationManager.instance.registerNotifTapHandler((type, data) async {
+      if (!mounted) return;
+
+      // الإشعارات التي تفتح SafeAreaPage مباشرة
+      const safeAreaTypes = {
+        'deal_complete',
+        'request_ready',
+        'deadline_confirmed',
+        'safe_area_opened',
+        'price_change_proposed',
+        'price_change_accepted',
+        'price_change_rejected',
+        'work_uploaded',
+        'payment_received',
+        'worker_confirmed_waiting',
+        'user_confirmed_waiting',
+      };
+
+      final requestId = data?['request_id'] as String?;
+
+      if (safeAreaTypes.contains(type) && requestId != null) {
+        // جلب الـ request ثم فتح SafeAreaPage مباشرة
+        try {
+          final auth = context.read<AuthProvider>();
+          final isWorker = auth.isWorker;
+
+          // نحاول نجد الطلب في القوائم المحملة أولاً
+          final provider = context.read<RequestProvider>();
+          ServiceRequest? req;
+
+          final allRequests = [
+            ...provider.workerRequests,
+            ...provider.userRequests,
+            ...provider.workerCompleted,
+            ...provider.userCompleted,
+          ];
+          try {
+            req = allRequests.firstWhere((r) => r.id == requestId);
+          } catch (_) {
+            req = null;
+          }
+
+          // إذا لم نجده في الذاكرة، نجلبه من الـ API
+          if (req == null) {
+            final raw = await ApiService.getRequestById(requestId);
+            req = raw;
+          }
+
+          if (!mounted) return;
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => SafeAreaPage(
+                request: req!,
+                isUserBuyer: !isWorker,
+              ),
+            ),
+            (route) => route.isFirst,
+          );
+        } catch (_) {
+          // fallback: افتح Requests tab
+          if (mounted) setState(() => _index = 2);
+        }
+        return;
+      }
+
+      switch (type) {
+        case 'new_offer':
+          setState(() => _index = 1);
+          break;
+        default:
+          setState(() => _index = 2);
+          break;
+      }
     });
   }
 
@@ -160,62 +262,7 @@ class _NavigationBarPageState extends State<NavigationBarPage> {
     final idx = _index.clamp(0, pages.length - 1);
 
     return Scaffold(
-      // ── AppBar مع زر الإشعارات في المكان الصحيح ──────
-      appBar: auth.isLoggedIn
-          ? AppBar(
-              toolbarHeight: 0, // مخفي - كل صفحة لها AppBar خاص
-              // نضع زر الإشعارات في كل page AppBar بطريقة مختلفة
-              // أو نستخدم Overlay من notification_service
-            )
-          : null,
-      body: Stack(children: [
-        IndexedStack(index: idx, children: pages),
-
-        // ── زر الإشعارات — يظهر فقط للمسجلين ──────────
-        // موضوع في أعلى يمين الشاشة بشكل صحيح (تحت status bar)
-        if (auth.isLoggedIn)
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topRight,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 4, top: 4),
-                child: ListenableBuilder(
-                  listenable: NotificationManager.instance,
-                  builder: (_, __) {
-                    final count = NotificationManager.instance.unreadCount;
-                    return Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(24),
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const NotificationInboxScreen()),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: badges.Badge(
-                            showBadge: count > 0,
-                            badgeContent: Text(
-                              count > 99 ? '99+' : '$count',
-                              style: const TextStyle(color: Colors.white, fontSize: 9),
-                            ),
-                            badgeStyle: const badges.BadgeStyle(
-                              badgeColor: AppTheme.accent,
-                              padding: EdgeInsets.all(4),
-                            ),
-                            child: const Icon(Icons.notifications_outlined,
-                                color: AppTheme.primary, size: 26),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-      ]),
+      body: IndexedStack(index: idx, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: idx,
         onTap: (i) {

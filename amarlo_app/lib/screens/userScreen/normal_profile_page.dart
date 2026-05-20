@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../services/http_client.dart';
+import '../../widgets/states.dart';
 import '../../widgets/user_avatar.dart';
 
 class NormalProfilePage extends StatefulWidget {
@@ -102,6 +103,7 @@ class _NormalProfilePageState extends State<NormalProfilePage> {
       appBar: AppBar(
         title: const Text('My Profile'),
         actions: [
+          const NotificationIconButton(),
           IconButton(
               icon: const Icon(Icons.logout),
               onPressed: _logout,

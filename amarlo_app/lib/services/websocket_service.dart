@@ -112,15 +112,19 @@ class ChatWebSocket {
     if (!_intentionalClose) _scheduleReconnect();
   }
 
-  void sendMessage(String recipientEmail, String message) {
-    if (!_connected) return;
+  /// يُرجع true إذا أُرسلت، false إذا لم يكن متصلاً بعد
+  bool sendMessage(String recipientEmail, String message) {
+    if (!_connected) return false;
     try {
       _channel?.sink.add(jsonEncode({
         'type':            'chat_message',
         'recipient_email': recipientEmail,
         'message':         message,
       }));
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   void disconnect() {

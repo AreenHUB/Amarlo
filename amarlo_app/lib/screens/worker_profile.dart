@@ -10,6 +10,7 @@ import '../models/app_models.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/http_client.dart';
+import '../widgets/states.dart';
 import '../widgets/user_avatar.dart';
 
 class WorkerProfilePage extends StatefulWidget {
@@ -127,6 +128,7 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
       appBar: AppBar(
         title: Text(_worker?.username ?? 'Profile'),
         actions: [
+          const NotificationIconButton(),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
       ),

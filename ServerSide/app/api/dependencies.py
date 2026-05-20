@@ -70,6 +70,22 @@ async def get_current_user_ws(token: str) -> dict:
     return _get_user_from_token(token)
 
 
+async def get_current_user_flexible(
+    header_token: Optional[str] = Depends(oauth2_scheme),
+    token: Optional[str] = None,
+) -> dict:
+    """Auth that accepts token from Authorization header OR ?token= query param.
+    Used for endpoints loaded directly in image widgets (preview, download)."""
+    resolved = header_token or token
+    if not resolved:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return _get_user_from_token(resolved)
+
+
 async def require_worker(current: dict = Depends(get_current_user)) -> dict:
     """Only workers can call this."""
     if current.get("userType") != "Worker":

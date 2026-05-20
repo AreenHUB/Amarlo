@@ -8,7 +8,9 @@ import '../../core/theme.dart';
 import '../../models/app_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/request_provider.dart';
+import '../../services/api_service.dart';
 import '../../services/http_client.dart';
+import '../../widgets/states.dart';
 import '../safe_area_page.dart';
 import '../user_request_history_page.dart';
 
@@ -68,6 +70,7 @@ class _UserRequestsPageState extends State<UserRequestsPage> {
         title: const Text('My Requests'),
         automaticallyImplyLeading: false,
         actions: [
+          const NotificationIconButton(),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: 'Completed Requests',
@@ -122,11 +125,44 @@ class _UserRequestsPageState extends State<UserRequestsPage> {
 // ══════════════════════════════════════════════
 //  Request Card
 // ══════════════════════════════════════════════
-class _RequestCard extends StatelessWidget {
+class _RequestCard extends StatefulWidget {
   final ServiceRequest request;
   final VoidCallback onDelete;
 
   const _RequestCard({required this.request, required this.onDelete});
+
+  @override
+  State<_RequestCard> createState() => _RequestCardState();
+}
+
+class _RequestCardState extends State<_RequestCard> {
+  bool _confirmingDeadline = false;
+
+  ServiceRequest get request => widget.request;
+
+  Future<void> _confirmDeadline(bool accept) async {
+    setState(() => _confirmingDeadline = true);
+    try {
+      await ApiService.confirmDeadline(request.id, accept);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(accept
+            ? 'Deadline confirmed! Safe Area is now active.'
+            : 'Deadline rejected. Worker will propose a new one.'),
+        backgroundColor: accept ? Colors.green : Colors.orange,
+      ));
+      // أعد تحميل الطلبات
+      context.read<RequestProvider>().fetchUserRequests(
+          context.read<AuthProvider>().user?.id ?? '');
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _confirmingDeadline = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -175,6 +211,79 @@ class _RequestCard extends StatelessWidget {
               style: const TextStyle(color: Colors.grey, fontSize: 13)),
           Text(_formatDate(request.createdAt),
               style: const TextStyle(color: Colors.grey, fontSize: 12)),
+
+          // ── Deadline proposal awaiting approval ──────
+          if (request.hasPendingDeadline &&
+              request.proposedDeadline != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(children: [
+                    Icon(Icons.schedule, size: 16, color: Colors.orange),
+                    SizedBox(width: 6),
+                    Text('Worker proposed a delivery deadline',
+                        style: TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13)),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text(
+                    DateFormat('EEE, MMM d yyyy — HH:mm').format(
+                        DateTime.parse(request.proposedDeadline!).toLocal()),
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  if (request.agreedPrice > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Agreed price: \$${request.agreedPrice.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                          color: Colors.green, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  _confirmingDeadline
+                      ? const Center(
+                          child: SizedBox(
+                              height: 24, width: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2)))
+                      : Row(children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _confirmDeadline(false),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                              ),
+                              child: const Text('Reject'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _confirmDeadline(true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                              ),
+                              child: const Text('Approve'),
+                            ),
+                          ),
+                        ]),
+                ],
+              ),
+            ),
+          ],
 
           // ── Safe Area active indicator ────────────
           if (request.safeAreaActive && request.status == 'accepted') ...[
@@ -247,7 +356,7 @@ class _RequestCard extends StatelessWidget {
             // Cancel — فقط عند pending
             if (request.status == 'pending')
               TextButton.icon(
-                onPressed: onDelete,
+                onPressed: widget.onDelete,
                 icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.red),
                 label: const Text('Cancel', style: TextStyle(color: Colors.red)),
               ),

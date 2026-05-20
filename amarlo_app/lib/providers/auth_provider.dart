@@ -36,17 +36,22 @@ class AuthProvider extends ChangeNotifier {
             _token = prefs.getString(AppConstants.kAccessToken);
             try {
               _user = await ApiService.getMe();
+            } on ApiException catch (e2) {
+              // 401 بعد refresh = session منتهية فعلاً
+              if (e2.statusCode == 401) await _clearSession(prefs);
+              // أي خطأ آخر (شبكة) = ابقَ مسجلاً
             } catch (_) {
-              await _clearSession(prefs);
+              // خطأ شبكة — ابقَ مسجلاً، سيُعاد المحاولة لاحقاً
             }
           } else {
+            // refresh فشل = session منتهية فعلاً → logout
             await _clearSession(prefs);
           }
-        } else {
-          await _clearSession(prefs);
         }
+        // statusCode != 401 (500، network error) → ابقَ مسجلاً
       } catch (_) {
-        await _clearSession(prefs);
+        // SocketException أو أي خطأ شبكة → لا تمسح الـ session
+        // المستخدم مسجل ولكن السيرفر غير متاح مؤقتاً
       }
     }
     notifyListeners();
@@ -98,7 +103,12 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _clearSession(SharedPreferences prefs) async {
-    await prefs.clear();
+    await prefs.remove(AppConstants.kAccessToken);
+    await prefs.remove(AppConstants.kRefreshToken);
+    await prefs.remove(AppConstants.kUserType);
+    await prefs.remove(AppConstants.kEmail);
+    await prefs.remove(AppConstants.kUserId);
+    await prefs.remove(AppConstants.kUsername);
     _token = null;
     _user  = null;
   }

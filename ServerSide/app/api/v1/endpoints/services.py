@@ -125,30 +125,34 @@ async def my_services(current_user: dict = Depends(get_current_user)):
     summary="إضافة خدمة جديدة",
 )
 async def add_service(
-    name:        str    = Form(..., min_length=2),
-    location:    str    = Form(...),
-    price:       float  = Form(..., gt=0),
-    description: str    = Form(..., min_length=10),
-    category:    Optional[str] = Form(None),
-    image:       UploadFile = File(...),      # ← إجبارية الآن
-    request:     Request = None,
-    current_user: dict  = Depends(get_current_user),
+    name:          str    = Form(..., min_length=2),
+    location:      str    = Form(...),
+    price:         float  = Form(..., gt=0),
+    description:   str    = Form(..., min_length=10),
+    category:      Optional[str] = Form(None),
+    delivery_type: str    = Form("online"),   # "online" | "in_person"
+    image:         UploadFile = File(...),
+    request:       Request = None,
+    current_user:  dict   = Depends(get_current_user),
 ):
     if not image or not image.filename:
         raise HTTPException(status_code=400, detail="Service image is required")
+    if delivery_type not in ("online", "in_person"):
+        raise HTTPException(status_code=400, detail="delivery_type must be 'online' or 'in_person'")
 
     image_url = await save_upload_image(image, "services", request)
 
     doc = {
-        "_id":          str(uuid.uuid4()),
-        "name":         name,
-        "location":     location,
-        "price":        price,
-        "description":  description,
-        "category":     category,
-        "image_url":    image_url,
-        "worker_email": current_user["email"],
-        "created_at":   datetime.now(timezone.utc),
+        "_id":           str(uuid.uuid4()),
+        "name":          name,
+        "location":      location,
+        "price":         price,
+        "description":   description,
+        "category":      category,
+        "delivery_type": delivery_type,
+        "image_url":     image_url,
+        "worker_email":  current_user["email"],
+        "created_at":    datetime.now(timezone.utc),
     }
     services_collection.insert_one(doc)
     return _serialize(doc)
@@ -156,26 +160,30 @@ async def add_service(
 
 @router.put("/services/{service_id}", response_model=ServiceOut, summary="تعديل خدمة")
 async def update_service(
-    service_id:  str,
-    name:        Optional[str]   = Form(None),
-    location:    Optional[str]   = Form(None),
-    price:       Optional[float] = Form(None),
-    description: Optional[str]   = Form(None),
-    category:    Optional[str]   = Form(None),
-    image:       Optional[UploadFile] = File(None),
-    request:     Request = None,
-    current_user: dict   = Depends(get_current_user),
+    service_id:    str,
+    name:          Optional[str]   = Form(None),
+    location:      Optional[str]   = Form(None),
+    price:         Optional[float] = Form(None),
+    description:   Optional[str]   = Form(None),
+    category:      Optional[str]   = Form(None),
+    delivery_type: Optional[str]   = Form(None),
+    image:         Optional[UploadFile] = File(None),
+    request:       Request = None,
+    current_user:  dict    = Depends(get_current_user),
 ):
     doc = services_collection.find_one({"_id": service_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Service not found")
     if doc["worker_email"] != current_user["email"]:
         raise HTTPException(status_code=403, detail="Not authorized")
+    if delivery_type and delivery_type not in ("online", "in_person"):
+        raise HTTPException(status_code=400, detail="delivery_type must be 'online' or 'in_person'")
 
     update: dict = {}
     for field, val in {
         "name": name, "location": location, "price": price,
         "description": description, "category": category,
+        "delivery_type": delivery_type,
     }.items():
         if val is not None:
             update[field] = val
@@ -244,15 +252,18 @@ async def request_service(
     # جلب بيانات العامل
     worker = users_collection.find_one({"email": service["worker_email"]}) or {}
 
+    delivery_type = service.get("delivery_type", "online")
     doc = {
-        "service_id":   service_id,
-        "service_name": service["name"],
-        "user_email":   current_user["email"],
-        "user_name":    current_user.get("username", ""),
-        "worker_email": service["worker_email"],
-        "status":       "pending",
-        "created_at":   datetime.now(timezone.utc),
+        "service_id":    service_id,
+        "service_name":  service["name"],
+        "service_price": service.get("price", 0),
+        "user_email":    current_user["email"],
+        "user_name":     current_user.get("username", ""),
+        "worker_email":  service["worker_email"],
+        "status":        "pending",
+        "created_at":    datetime.now(timezone.utc),
         "safe_area_active": False,
+        "delivery_type": delivery_type,
     }
     result = requests_collection.insert_one(doc)
     doc["_id"] = result.inserted_id

@@ -9,6 +9,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/request_provider.dart';
 import '../../../services/api_service.dart';
 import '../../../services/http_client.dart';
+import '../../../widgets/states.dart'; // NotificationIconButton
 import '../../safe_area_page.dart';
 import '../../worker_request_history_page.dart';
 
@@ -39,6 +40,19 @@ class _WorkerRequestsPageState extends State<WorkerRequestsPage> {
     try {
       await context.read<RequestProvider>().acceptRequest(requestId, deadline);
       _snack('Request accepted');
+    } on ApiException catch (e) {
+      _snack(e.message);
+    }
+  }
+
+  // للطلبات القادمة من Post مع safe_area_enabled
+  Future<void> _proposeDeadline(String requestId) async {
+    final deadline = await _pickDeadline();
+    if (deadline == null) return;
+    try {
+      await ApiService.proposeDeadline(requestId, deadline.toIso8601String());
+      _snack('Deadline sent to client for approval');
+      _fetch();
     } on ApiException catch (e) {
       _snack(e.message);
     }
@@ -102,6 +116,7 @@ class _WorkerRequestsPageState extends State<WorkerRequestsPage> {
         title: const Text('Service Requests'),
         automaticallyImplyLeading: false,
         actions: [
+          const NotificationIconButton(),
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () => Navigator.push(context,
@@ -128,8 +143,13 @@ class _WorkerRequestsPageState extends State<WorkerRequestsPage> {
                   const _SectionHeader('New Requests'),
                   ...pending.map((r) => _PendingCard(
                         request: r,
-                        onAccept: () => _accept(r.id),
+                        onAccept: r.safeAreaEnabled
+                            ? null                        // Safe Area: propose deadline instead
+                            : () => _accept(r.id),
                         onReject: () => _reject(r.id),
+                        onProposeDeadline: r.safeAreaEnabled
+                            ? () => _proposeDeadline(r.id)
+                            : null,
                       )),
                   const SizedBox(height: 16),
                 ],
@@ -193,11 +213,16 @@ class _SectionHeader extends StatelessWidget {
 
 class _PendingCard extends StatelessWidget {
   final ServiceRequest request;
-  final VoidCallback onAccept;
+  final VoidCallback? onAccept;
   final VoidCallback onReject;
+  final VoidCallback? onProposeDeadline;
 
-  const _PendingCard(
-      {required this.request, required this.onAccept, required this.onReject});
+  const _PendingCard({
+    required this.request,
+    required this.onAccept,
+    required this.onReject,
+    this.onProposeDeadline,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -208,10 +233,36 @@ class _PendingCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(request.serviceName,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Row(children: [
+              Expanded(
+                child: Text(request.serviceName,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+              if (request.safeAreaEnabled)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.shield, size: 12, color: Colors.green),
+                    SizedBox(width: 4),
+                    Text('Safe Area', style: TextStyle(
+                        fontSize: 10, color: Colors.green,
+                        fontWeight: FontWeight.w600)),
+                  ]),
+                ),
+            ]),
             const SizedBox(height: 4),
-            Text('From: ${request.userName}', style: const TextStyle(color: Colors.grey)),
+            Text('From: ${request.userName}',
+                style: const TextStyle(color: Colors.grey)),
+            if (request.agreedPrice > 0)
+              Text('\$${request.agreedPrice.toStringAsFixed(0)} agreed',
+                  style: const TextStyle(
+                      color: Colors.green, fontWeight: FontWeight.w600)),
             Text(_formatDate(request.createdAt),
                 style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 12),
@@ -219,18 +270,28 @@ class _PendingCard extends StatelessWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: onReject,
-                  icon: const Icon(Icons.cancel, color: Colors.red),
-                  label: const Text('Reject', style: TextStyle(color: Colors.red)),
-                  style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                  icon: const Icon(Icons.cancel, color: Colors.red, size: 16),
+                  label: const Text('Reject',
+                      style: TextStyle(color: Colors.red)),
+                  style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red)),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: onAccept,
-                  icon: const Icon(Icons.check_circle),
-                  label: const Text('Accept'),
-                ),
+                child: onProposeDeadline != null
+                    ? ElevatedButton.icon(
+                        onPressed: onProposeDeadline,
+                        icon: const Icon(Icons.schedule, size: 16),
+                        label: const Text('Set Deadline'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green),
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: onAccept,
+                        icon: const Icon(Icons.check_circle, size: 16),
+                        label: const Text('Accept'),
+                      ),
               ),
             ]),
           ],

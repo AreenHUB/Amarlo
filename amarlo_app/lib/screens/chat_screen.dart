@@ -9,6 +9,7 @@ import '../models/app_models.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/http_client.dart';
+import '../services/notification_service.dart';
 import '../services/websocket_service.dart';
 import '../widgets/states.dart';
 import '../widgets/user_avatar.dart';
@@ -38,12 +39,16 @@ class _ChatScreenState extends State<ChatScreen> {
   List<ChatMessage> _messages = [];
 
   ChatWebSocket? _ws;
-  bool _wsConnected    = false;
-  bool _isBlocked      = false;
-  bool _loading        = true;
-  bool _recipientOnline = false; // presence
+  bool _wsConnected     = false;
+  bool _isBlocked       = false;
+  bool _loading         = true;
+  bool _recipientOnline = false;
   Timer? _presenceTimer;
   String? _error;
+
+  // listener يُسجَّل في NotificationManager لاستقبال رسائل جديدة
+  // عبر قناة الإشعارات حتى قبل اتصال ChatWebSocket
+  void Function(Map<String, dynamic>)? _notifListener;
 
   String get _myEmail =>
       context.read<AuthProvider>().user?.email ?? '';
@@ -51,15 +56,22 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    // أبلغ NotificationManager أننا في محادثة مع هذا الشخص
+    NotificationManager.instance.setActiveChatEmail(widget.recipientEmail);
     _init();
   }
 
   @override
   void dispose() {
+    // أزل الـ active chat عند الخروج من الشاشة
+    NotificationManager.instance.setActiveChatEmail(null);
     _ws?.disconnect();
     _presenceTimer?.cancel();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    if (_notifListener != null) {
+      NotificationManager.instance.removeMessageListener(_notifListener!);
+    }
     super.dispose();
   }
 
@@ -76,6 +88,14 @@ class _ChatScreenState extends State<ChatScreen> {
       _loadHistory(auth.user!.email),
       _checkBlock(),
     ]);
+
+    // استمع لـ new_message من NotificationManager (يعمل حتى قبل اتصال ChatWebSocket)
+    _notifListener = (data) {
+      final senderEmail = data['sender_email'] as String? ?? '';
+      if (senderEmail != widget.recipientEmail) return;
+      if (mounted) _loadHistory(auth.user!.email, silent: true);
+    };
+    NotificationManager.instance.addMessageListener(_notifListener!);
 
     // فتح WebSocket
     if (!mounted) return;
@@ -122,18 +142,23 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // ─── Load history ─────────────────────────────────────
-  Future<void> _loadHistory(String myEmail) async {
+  Future<void> _loadHistory(String myEmail, {bool silent = false}) async {
     try {
       final raw = await ApiService.getMessages(myEmail, widget.recipientEmail);
       if (!mounted) return;
 
       _seenIds.clear();
       final parsed = (raw as List)
-          .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
+          .map((e) => ChatMessage.fromJson(e))
           .toList();
       for (final m in parsed) _seenIds.add(m.id);
 
-      setState(() { _messages = parsed; _loading = false; });
+      // silent = استدعاء من notif listener — لا نُظهر loading ولا نُغيّر _loading
+      if (silent) {
+        setState(() => _messages = parsed);
+      } else {
+        setState(() { _messages = parsed; _loading = false; });
+      }
 
       // mark all unread
       for (final m in parsed) {
@@ -144,7 +169,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     } catch (e) {
-      if (mounted) setState(() { _loading = false; _error = e.toString(); });
+      if (mounted && !silent) {
+        setState(() { _loading = false; _error = e.toString(); });
+      }
     }
   }
 
@@ -172,7 +199,17 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _msgCtrl.text.trim();
     if (text.isEmpty || _isBlocked) return;
 
-    // Optimistic: أضف الرسالة محلياً فوراً دون انتظار Echo
+    if (!_wsConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Connecting... please wait a moment'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // Optimistic: أضف الرسالة محلياً فوراً
     final tempId = 'tmp_${DateTime.now().millisecondsSinceEpoch}';
     final optimistic = ChatMessage(
       id:             tempId,
@@ -183,11 +220,22 @@ class _ChatScreenState extends State<ChatScreen> {
       timestamp:      DateTime.now().toUtc().toIso8601String(),
       read:           false,
     );
+
+    final sent = _ws?.sendMessage(widget.recipientEmail, text) ?? false;
+    if (!sent) {
+      // فشل الإرسال — لا نُضيف الـ bubble
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to send. Please try again.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     _seenIds.add(tempId);
     setState(() => _messages.add(optimistic));
     _scrollToBottom(animated: true);
-
-    _ws?.sendMessage(widget.recipientEmail, text);
     _msgCtrl.clear();
     HapticFeedback.selectionClick();
   }

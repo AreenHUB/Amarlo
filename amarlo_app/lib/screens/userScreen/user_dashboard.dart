@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../../models/app_models.dart';
 import '../../services/api_service.dart';
 import '../../services/http_client.dart';
+import '../../services/notification_service.dart';
+import '../../widgets/states.dart';
 import 'offers_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -17,20 +19,24 @@ class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
   List<Post> _posts = [];
-  List<Map<String, dynamic>> _offers = [];
   bool _loadingPosts = true;
-  bool _loadingOffers = false; // ignore: unused_field
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
     _fetchPosts();
-    _fetchOffers();
+    // تحديث فوري عند وصول offer جديدة + انتقال لـ Offers tab
+    NotificationManager.instance.registerOffersRefresh(() {
+      if (!mounted) return;
+      _fetchPosts();
+      _tab.animateTo(1);
+    });
   }
 
   @override
   void dispose() {
+    NotificationManager.instance.unregisterOffersRefresh();
     _tab.dispose();
     super.dispose();
   }
@@ -39,39 +45,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() => _loadingPosts = true);
     try {
       final paged = await ApiService.getMyPosts(size: 100);
-      if (mounted) { setState(() { _posts = paged.items; _loadingPosts = false; }); }
+      if (mounted) {
+        setState(() { _posts = paged.items; _loadingPosts = false; });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingPosts = false);
-    }
-  }
-
-  Future<void> _fetchOffers() async {
-    setState(() => _loadingOffers = true);
-    try {
-      final offers = await ApiService.getMyReceivedOffers();
-      if (mounted) setState(() {
-        // تحويل Post إلى Map لتوافق OffersScreen
-        _offers = offers.map((p) => {
-          '_id':              p.id,
-          'title':            p.title,
-          'description':      p.description,
-          'price_range':      p.priceRange,
-          'category':         p.category ?? '',
-          'creator_email':    p.creatorEmail,
-          'creator_username': p.creatorUsername,
-          'offers':           p.offers.map((o) => {
-            '_id':             o.id,
-            'content':         o.content,
-            'price':           o.price,
-            'worker_email':    o.workerEmail,
-            'worker_username': o.workerUsername,
-            'status':          o.status,
-          }).toList(),
-        }).toList();
-        _loadingOffers = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loadingOffers = false);
     }
   }
 
@@ -81,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       appBar: AppBar(
         title: const Text('Dashboard'),
         automaticallyImplyLeading: false,
+        actions: const [NotificationIconButton()],
         bottom: TabBar(
           controller: _tab,
           indicatorColor: Colors.white,
@@ -97,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             loading: _loadingPosts,
             onRefresh: _fetchPosts,
           ),
-          OffersScreen(offers: _offers, onRefresh: _fetchOffers),
+          OffersScreen(posts: _posts, onRefresh: _fetchPosts),
         ],
       ),
     );
@@ -192,11 +171,28 @@ class _PostCard extends StatelessWidget {
                 Text(post.category!, style: const TextStyle(color: Colors.grey, fontSize: 12)),
               ],
             ]),
-            if (post.offers.isNotEmpty) ...[
-              const SizedBox(height: 6),
+            const SizedBox(height: 6),
+            if (post.status == 'closed')
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                ),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.handshake, size: 13, color: Colors.green),
+                  SizedBox(width: 4),
+                  Text('Deal agreed — no more offers accepted',
+                      style: TextStyle(
+                          color: Colors.green,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600)),
+                ]),
+              )
+            else if (post.offers.isNotEmpty)
               Text('${post.offers.length} offer(s)',
                   style: const TextStyle(color: Colors.blue, fontSize: 12)),
-            ],
           ],
         ),
       ),
@@ -239,10 +235,12 @@ class _PostCard extends StatelessWidget {
           }
         }
       },
-      itemBuilder: (_) => const [
-        PopupMenuItem(value: 'edit', child: ListTile(
-          leading: Icon(Icons.edit), title: Text('Edit'), dense: true)),
-        PopupMenuItem(value: 'delete', child: ListTile(
+      itemBuilder: (_) => [
+        // البوست المغلق لا يمكن تعديله
+        if (post.status != 'closed')
+          const PopupMenuItem(value: 'edit', child: ListTile(
+            leading: Icon(Icons.edit), title: Text('Edit'), dense: true)),
+        const PopupMenuItem(value: 'delete', child: ListTile(
           leading: Icon(Icons.delete, color: Colors.red),
           title: Text('Delete', style: TextStyle(color: Colors.red)), dense: true)),
       ],
@@ -262,31 +260,45 @@ class _PostForm extends StatefulWidget {
 
 class _PostFormState extends State<_PostForm> {
   final _titleCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
+  final _descCtrl  = TextEditingController();
   final _priceCtrl = TextEditingController();
-  final _catCtrl = TextEditingController();
+  String? _selectedCategory;
+  List<String> _categories = [];
+  bool _safeAreaEnabled = false;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     if (widget.post != null) {
-      _titleCtrl.text = widget.post!.title;
-      _descCtrl.text = widget.post!.description;
-      _priceCtrl.text = widget.post!.priceRange;
-      _catCtrl.text = widget.post!.category ?? '';
+      _titleCtrl.text   = widget.post!.title;
+      _descCtrl.text    = widget.post!.description;
+      _priceCtrl.text   = widget.post!.priceRange;
+      _selectedCategory = widget.post!.category;
+      _safeAreaEnabled  = widget.post!.safeAreaEnabled;
     }
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final cats = await ApiService.getPostCategories();
+      if (mounted) setState(() => _categories = cats);
+    } catch (_) {}
   }
 
   @override
   void dispose() {
-    _titleCtrl.dispose(); _descCtrl.dispose();
-    _priceCtrl.dispose(); _catCtrl.dispose();
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    _priceCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    if (_titleCtrl.text.isEmpty || _descCtrl.text.isEmpty || _priceCtrl.text.isEmpty) {
+    if (_titleCtrl.text.trim().isEmpty ||
+        _descCtrl.text.trim().isEmpty ||
+        _priceCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Title, description, and price are required')));
       return;
@@ -295,17 +307,19 @@ class _PostFormState extends State<_PostForm> {
     try {
       if (widget.post == null) {
         await ApiService.createPost(
-          title: _titleCtrl.text,
-          description: _descCtrl.text,
-          priceRange: _priceCtrl.text,
-          category: _catCtrl.text.isNotEmpty ? _catCtrl.text : null,
+          title:            _titleCtrl.text.trim(),
+          description:      _descCtrl.text.trim(),
+          priceRange:       _priceCtrl.text.trim(),
+          category:         _selectedCategory,
+          safeAreaEnabled:  _safeAreaEnabled,
         );
       } else {
         await ApiService.updatePost(widget.post!.id,
-          title: _titleCtrl.text,
-          description: _descCtrl.text,
-          priceRange: _priceCtrl.text,
-          category: _catCtrl.text.isNotEmpty ? _catCtrl.text : null,
+          title:            _titleCtrl.text.trim(),
+          description:      _descCtrl.text.trim(),
+          priceRange:       _priceCtrl.text.trim(),
+          category:         _selectedCategory,
+          safeAreaEnabled:  _safeAreaEnabled,
         );
       }
       widget.onSaved();
@@ -325,28 +339,152 @@ class _PostFormState extends State<_PostForm> {
         bottom: MediaQuery.of(context).viewInsets.bottom,
         left: 16, right: 16, top: 20,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(widget.post == null ? 'Create Post' : 'Edit Post',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          _field(_titleCtrl, 'Title *'),
-          _field(_descCtrl, 'Description *', maxLines: 3),
-          _field(_priceCtrl, 'Price Range * (e.g. \$50–\$100)'),
-          _field(_catCtrl, 'Category (optional)'),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: _saving ? null : _save,
-            style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
-            child: _saving
-                ? const SizedBox(height: 20, width: 20,
-                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : Text(widget.post == null ? 'Post' : 'Save Changes'),
-          ),
-          const SizedBox(height: 20),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // handle bar
+            Center(child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            )),
+            const SizedBox(height: 14),
+            Text(widget.post == null ? 'Create Post' : 'Edit Post',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            _field(_titleCtrl, 'Title *'),
+            _field(_descCtrl, 'Description *', maxLines: 3),
+            _field(_priceCtrl, 'Price Range * (e.g. 50-100)'),
+            // ── Category Dropdown ──────────────────
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: DropdownButtonFormField<String>(
+                value: _categories.contains(_selectedCategory)
+                    ? _selectedCategory
+                    : null,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                hint: const Text('Select a category'),
+                isExpanded: true,
+                items: _categories
+                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                    .toList(),
+                onChanged: (v) => setState(() => _selectedCategory = v),
+              ),
+            ),
+            const SizedBox(height: 4),
+            // ── Safe Area Toggle ────────────────────
+            Container(
+              decoration: BoxDecoration(
+                color: _safeAreaEnabled
+                    ? Colors.green.withValues(alpha: 0.06)
+                    : Colors.grey.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _safeAreaEnabled
+                      ? Colors.green.withValues(alpha: 0.4)
+                      : Colors.grey.withValues(alpha: 0.3),
+                ),
+              ),
+              child: SwitchListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                title: Row(children: [
+                  const Text('Activate Safe Area',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  const SizedBox(width: 6),
+                  Tooltip(
+                    triggerMode: TooltipTriggerMode.tap,
+                    message:
+                        'Enable Safe Area if your work can be delivered\n'
+                        'online (e.g. logo, code, PDF, report).\n'
+                        'Payment is held in escrow and released\n'
+                        'only after you confirm the delivery.',
+                    preferBelow: false,
+                    child: const Icon(Icons.help_outline,
+                        size: 16, color: Colors.grey),
+                  ),
+                ]),
+                subtitle: Text(
+                  _safeAreaEnabled
+                      ? 'Payment held in escrow until delivery confirmed'
+                      : 'For in-person / offline services',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _safeAreaEnabled ? Colors.green[700] : Colors.grey,
+                  ),
+                ),
+                value: _safeAreaEnabled,
+                activeThumbColor: Colors.green,
+                activeTrackColor: Colors.green.withValues(alpha: 0.5),
+                onChanged: (val) async {
+                  if (val) {
+                    // confirmation dialog عند التفعيل
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                        title: const Row(children: [
+                          Icon(Icons.shield, color: Colors.green, size: 22),
+                          SizedBox(width: 8),
+                          Text('Enable Safe Area?'),
+                        ]),
+                        content: const Text(
+                          'Enable this only if your work can be delivered '
+                          'online — such as:\n\n'
+                          '• Design files (logo, UI)\n'
+                          '• Code or software\n'
+                          '• PDF reports or documents\n'
+                          '• Any digital deliverable\n\n'
+                          'For in-person services (cleaning, tutoring, etc.) '
+                          'please leave this off.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            style: TextButton.styleFrom(
+                                foregroundColor: Colors.grey[700]),
+                            child: const Text('No, go back'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green),
+                            child: const Text('Yes, enable it'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) {
+                      setState(() => _safeAreaEnabled = true);
+                    }
+                  } else {
+                    setState(() => _safeAreaEnabled = false);
+                  }
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
+            ElevatedButton(
+              onPressed: _saving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48)),
+              child: _saving
+                  ? const SizedBox(height: 20, width: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Text(widget.post == null ? 'Post' : 'Save Changes'),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }

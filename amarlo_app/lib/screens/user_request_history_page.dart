@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/app_models.dart';
 import '../providers/auth_provider.dart';
 import '../providers/request_provider.dart';
+import '../screens/safe_area_page.dart';
 
 class UserRequestHistoryPage extends StatefulWidget {
   const UserRequestHistoryPage({super.key});
@@ -108,6 +109,11 @@ class _HistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // للطلبات الرقمية المكتملة — يُتاح فتح Safe Area للتحميل
+    final canOpenSafeArea = !isWorker &&
+        request.isOnline &&
+        request.status == 'completed';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -126,7 +132,9 @@ class _HistoryCard extends StatelessWidget {
             ]),
             const SizedBox(height: 6),
             Text(
-              isWorker ? 'Client: ${request.userName}' : 'Worker: ${request.workerEmail}',
+              isWorker
+                  ? 'Client: ${request.userName}'
+                  : 'Worker: ${request.workerEmail}',
               style: const TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 4),
@@ -143,6 +151,28 @@ class _HistoryCard extends StatelessWidget {
                     style: const TextStyle(color: Colors.grey, fontSize: 12)),
               ],
             ]),
+
+            // ── زر Download — يبقى دائماً في الـ history ──
+            if (canOpenSafeArea) ...[
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SafeAreaPage(
+                      request: request,
+                      isUserBuyer: true,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.download_outlined, size: 18),
+                label: const Text('Download File'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 42),
+                  backgroundColor: Colors.green,
+                ),
+              ),
+            ],
           ],
         ),
       ),

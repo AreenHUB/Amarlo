@@ -143,6 +143,11 @@ class ApiService {
   //  POSTS & OFFERS
   // ══════════════════════════════════════════════
 
+  static Future<List<String>> getPostCategories() async {
+    final data = await api.get(AppConstants.postCategoriesUrl, auth: false);
+    return (data as List).map((e) => e.toString()).toList();
+  }
+
   static Future<Paged<Post>> getMyPosts({int page = 1, int size = 100}) async {
     final data = await api.get('${AppConstants.postsUrl}?page=$page&size=$size');
     return Paged.fromJson(data as Map<String, dynamic>, Post.fromJson);
@@ -165,26 +170,37 @@ class ApiService {
   }
 
   static Future<Post> createPost({
-    required String title, required String description,
-    required String priceRange, String? category,
+    required String title,
+    required String description,
+    required String priceRange,
+    String? category,
+    String deliveryType = 'online',
+    bool safeAreaEnabled = false,
   }) async {
     final data = await api.post(AppConstants.postsUrl, {
-      'title': title, 'description': description,
-      'price_range': priceRange,
+      'title':              title,
+      'description':        description,
+      'price_range':        priceRange,
+      'delivery_type':      deliveryType,
+      'safe_area_enabled':  safeAreaEnabled,
       if (category != null) 'category': category,
     });
     return Post.fromJson(data as Map<String, dynamic>);
   }
 
   static Future<Post> updatePost(String id, {
-    String? title, String? description,
-    String? priceRange, String? category,
+    String? title,
+    String? description,
+    String? priceRange,
+    String? category,
+    bool? safeAreaEnabled,
   }) async {
     final data = await api.put(AppConstants.postUrl(id), {
-      if (title != null) 'title': title,
-      if (description != null) 'description': description,
-      if (priceRange != null) 'price_range': priceRange,
-      if (category != null) 'category': category,
+      if (title != null)           'title':             title,
+      if (description != null)     'description':       description,
+      if (priceRange != null)      'price_range':       priceRange,
+      if (category != null)        'category':          category,
+      if (safeAreaEnabled != null) 'safe_area_enabled': safeAreaEnabled,
     });
     return Post.fromJson(data as Map<String, dynamic>);
   }
@@ -193,19 +209,35 @@ class ApiService {
     await api.delete(AppConstants.postUrl(id));
   }
 
+  static Future<void> updateOffer(
+      String postId, String offerId, {String? content, double? price}) async {
+    await api.put(AppConstants.editOfferUrl(postId, offerId), {
+      if (content != null) 'content': content,
+      if (price != null)   'price':   price,
+    });
+  }
+
   static Future<void> addOffer(String postId, String content, double price) async {
     await api.post(AppConstants.postOffersUrl(postId),
         {'content': content, 'price': price});
   }
 
-  static Future<void> respondToOffer(String postId, String offerId, bool accept) async {
+  static Future<Map<String, dynamic>> respondToOffer(
+      String postId, String offerId, bool accept) async {
     final action = accept ? 'accept' : 'reject';
-    await api.put(AppConstants.postOfferActionUrl(postId, offerId, action), {});
+    final data = await api.put(
+        AppConstants.postOfferActionUrl(postId, offerId, action), {});
+    return (data as Map<String, dynamic>?) ?? {};
   }
 
   // ══════════════════════════════════════════════
   //  SERVICE REQUESTS
   // ══════════════════════════════════════════════
+
+  static Future<ServiceRequest> getRequestById(String id) async {
+    final data = await api.get(AppConstants.requestUrl(id));
+    return ServiceRequest.fromJson(data as Map<String, dynamic>);
+  }
 
   static Future<Paged<ServiceRequest>> getUserRequests(
     String userId, {int page = 1, int size = 100}) async {
@@ -240,6 +272,22 @@ class ApiService {
 
   static Future<void> markReady(String id) async {
     await api.put(AppConstants.requestReadyUrl(id), {});
+  }
+
+  static Future<void> proposeDeadline(String id, String deadline) async {
+    await api.put(
+      '${AppConstants.requestProposeDeadlineUrl(id)}?deadline=${Uri.encodeComponent(deadline)}',
+      {},
+    );
+  }
+
+  static Future<Map<String, dynamic>> confirmDeadline(
+      String id, bool accept) async {
+    final data = await api.put(
+      '${AppConstants.requestConfirmDeadlineUrl(id)}?accept=$accept',
+      {},
+    );
+    return (data as Map<String, dynamic>?) ?? {};
   }
 
   static Future<void> deleteRequest(String id) async {
@@ -303,22 +351,56 @@ class ApiService {
     return (data as List).map((e) => Review.fromJson(e)).toList();
   }
 
+  /// جلب الطلبات المؤهلة للتقييم مع هذا الشخص
+  static Future<Map<String, dynamic>> canReview(String email) async {
+    final data = await api.get(AppConstants.canReviewUrl(email));
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  static Future<void> addWorkReview(
+    String revieweeEmail, {
+    required String requestId,
+    required int qualityRating,
+    required int punctualityRating,
+    required int communicationRating,
+    String? comment,
+  }) async {
+    await api.post(AppConstants.reviewsUrl(revieweeEmail), {
+      'request_id':            requestId,
+      'quality_rating':        qualityRating,
+      'punctuality_rating':    punctualityRating,
+      'communication_rating':  communicationRating,
+      if (comment != null && comment.isNotEmpty) 'comment': comment,
+    });
+  }
+
+  static Future<void> submitConductReport({
+    required String reportedEmail,
+    required List<String> reasons,
+    String? details,
+  }) async {
+    await api.post(AppConstants.conductReportUrl, {
+      'reported_email': reportedEmail,
+      'reasons':        reasons,
+      if (details != null && details.isNotEmpty) 'details': details,
+    });
+  }
+
+  static Future<Map<String, dynamic>> getConductSummary(String email) async {
+    final data = await api.get(AppConstants.conductSummaryUrl(email));
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  static Future<void> deleteReview(String reviewId) async {
+    await api.delete(AppConstants.reviewUrl(reviewId));
+  }
+
+  // Legacy — للتوافق مع الكود القديم
   static Future<void> addReview(String workerEmail, int rating, String? comment) async {
     await api.post(AppConstants.reviewsUrl(workerEmail), {
       'rating': rating,
       if (comment != null && comment.isNotEmpty) 'comment': comment,
     });
-  }
-
-  static Future<void> updateReview(String reviewId, int rating, String? comment) async {
-    await api.put(AppConstants.reviewUrl(reviewId), {
-      'rating': rating,
-      if (comment != null) 'comment': comment,
-    });
-  }
-
-  static Future<void> deleteReview(String reviewId) async {
-    await api.delete(AppConstants.reviewUrl(reviewId));
   }
 
   // ══════════════════════════════════════════════
@@ -362,11 +444,13 @@ class ApiService {
   //  SAFE AREA
   // ══════════════════════════════════════════════
 
-  static Future<void> uploadWork(String requestId, File file) async {
+  // proofImage مطلوبة للملفات غير الصور (كود، ZIP...)
+  static Future<void> uploadWork(String requestId, File file, {File? proofImage}) async {
     await api.multipartPost(
       AppConstants.safeAreaUploadUrl(requestId),
       fieldName: 'file',
       file: file,
+      proofImage: proofImage,
     );
   }
 
@@ -384,9 +468,73 @@ class ApiService {
     return (data as Map<String, dynamic>?) ?? {};
   }
 
+  static Future<void> proposePriceChange(String id, int newPrice) async {
+    await api.post(AppConstants.safeAreaProposePriceUrl(id), {'new_price': newPrice});
+  }
+
+  static Future<Map<String, dynamic>> confirmPriceChange(String id, bool accept) async {
+    final data = await api.post(
+        '${AppConstants.safeAreaConfirmPriceUrl(id)}?accept=$accept', {});
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  static Future<Map<String, dynamic>> confirmInPerson(String id) async {
+    final data = await api.post(AppConstants.safeAreaConfirmInPersonUrl(id), {});
+    return (data as Map<String, dynamic>?) ?? {};
+  }
+
   static Future<Map<String, dynamic>> getWorkerBalance(String email) async {
     final data = await api.get(AppConstants.workerBalanceUrl(email));
     return (data as Map<String, dynamic>?) ?? {};
+  }
+
+  // ══════════════════════════════════════════════
+  //  SAFE AREA SESSIONS (Contract)
+  // ══════════════════════════════════════════════
+
+  static Future<SafeAreaSession> createSafeAreaSession({
+    required String participantEmail,
+    required String title,
+    required String description,
+    required String deliverables,
+    required double price,
+    required String deadline,
+    String deliveryType = 'online',
+    String? postRef,
+    String? offerRef,
+  }) async {
+    final data = await api.post(AppConstants.safeAreaSessionsUrl, {
+      'participant_email': participantEmail,
+      'title':             title,
+      'description':       description,
+      'deliverables':      deliverables,
+      'price':             price,
+      'deadline':          deadline,
+      'delivery_type':     deliveryType,
+      if (postRef  != null) 'post_ref':  postRef,
+      if (offerRef != null) 'offer_ref': offerRef,
+    });
+    return SafeAreaSession.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<List<SafeAreaSession>> getMySafeAreaSessions() async {
+    final data = await api.get(AppConstants.mySafeAreaSessionsUrl);
+    return (data as List)
+        .map((e) => SafeAreaSession.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<SafeAreaSession> getSafeAreaSession(String id) async {
+    final data = await api.get(AppConstants.safeAreaSessionUrl(id));
+    return SafeAreaSession.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<void> acceptSafeAreaSession(String id) async {
+    await api.put(AppConstants.safeAreaSessionAcceptUrl(id), {});
+  }
+
+  static Future<void> rejectSafeAreaSession(String id) async {
+    await api.put(AppConstants.safeAreaSessionRejectUrl(id), {});
   }
 
   // ══════════════════════════════════════════════

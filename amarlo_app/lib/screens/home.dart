@@ -2,7 +2,6 @@
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:badges/badges.dart' as badges;
 
 import '../core/dialogs.dart';
 import '../core/theme.dart';
@@ -11,11 +10,12 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/http_client.dart';
 import '../services/notification_service.dart';
-import '../services/websocket_service.dart';
 import '../widgets/skeletons.dart';
 import '../widgets/states.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
+import 'login.dart';
+import 'register.dart';
 import 'worker_profile_view.dart';
 
 class HomePage extends StatefulWidget {
@@ -32,56 +32,33 @@ class HomePageState extends State<HomePage> {
   Map<String, List<Service>> _grouped = {};
   List<Service> _filtered = [];
   List<String> _categories = [];
-  List<Conversation> _conversations = [];
-  int _unreadCount = 0;
 
   String _search = '';
   String? _selectedCity;
   String? _selectedCategory;
   RangeValues _priceRange = const RangeValues(0, 10000);
 
-  NotificationWebSocket? _notifWs;
   bool _loading = true;
   String? _error;
-
-  // cities are now searched dynamically
 
   @override
   void initState() {
     super.initState();
     _load();
-    // تسجيل Context للتنقل من Toast
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) NotificationManager.instance.setNavContext(context);
-    });
   }
 
   @override
-  void dispose() { _notifWs?.disconnect(); super.dispose(); }
+  void dispose() { super.dispose(); }
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
       await Future.wait([_fetchServices(), _fetchCategories()]);
-      if (!mounted) return;
-      final auth = context.read<AuthProvider>();
-      if (auth.isLoggedIn && auth.user != null) {
-        _fetchConversations();
-        _connectNotifications(auth.token!, auth.user!.email);
-      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  void _connectNotifications(String token, String email) {
-    _notifWs?.disconnect();
-    _notifWs = NotificationWebSocket(
-      userEmail: email, token: token,
-      onUnreadCount: (c) { if (mounted) setState(() => _unreadCount = c); },
-    )..connect();
   }
 
   Future<void> _fetchServices() async {
@@ -107,14 +84,6 @@ class HomePageState extends State<HomePage> {
     } catch (_) {}
   }
 
-  Future<void> _fetchConversations() async {
-    final auth = context.read<AuthProvider>();
-    if (auth.user == null) return;
-    try {
-      final convs = await ApiService.getConversations(auth.user!.email);
-      if (mounted) setState(() => _conversations = convs);
-    } catch (_) {}
-  }
 
   void _applyFilters() {
     final q = _search.toLowerCase();
@@ -131,10 +100,15 @@ class HomePageState extends State<HomePage> {
     });
   }
 
+  void _goLogin()    => Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginPage()));
+  void _goRegister() => Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterPage()));
+
   Future<void> _sendRequest(Service service) async {
     final auth = context.read<AuthProvider>();
-    if (!auth.isLoggedIn) { showInfo(context, 'Please login to send a request'); return; }
-
+    if (!auth.isLoggedIn) {
+      await showAuthRequired(context, onLogin: _goLogin, onRegister: _goRegister);
+      return;
+    }
     final ok = await showConfirmDialog(context,
       title: 'Send Request',
       message: 'Request "${service.name}" from ${service.workerUsername}?',
@@ -182,25 +156,39 @@ class HomePageState extends State<HomePage> {
         ]),
         automaticallyImplyLeading: false,
         actions: [
-          if (auth.isLoggedIn)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: IconButton(
-                icon: badges.Badge(
-                  showBadge: _unreadCount > 0,
-                  badgeContent: Text('$_unreadCount',
-                      style: const TextStyle(color: Colors.white, fontSize: 10)),
-                  badgeStyle: const badges.BadgeStyle(
-                      badgeColor: AppTheme.accent, padding: EdgeInsets.all(4)),
-                  child: const Icon(Icons.chat_bubble_outline),
-                ),
-                onPressed: () => Navigator.push(context, MaterialPageRoute(
-                  builder: (_) => _ConversationList(
-                      onBack: _fetchConversations,
-                      initial: _conversations),
-                )).then((_) => _fetchConversations()),
-              ),
+          if (auth.isLoggedIn) ...[
+            ListenableBuilder(
+              listenable: NotificationManager.instance,
+              builder: (_, __) {
+                final count = NotificationManager.instance.unreadMessageCount;
+                return Stack(alignment: Alignment.center, children: [
+                  IconButton(
+                    icon: const Icon(Icons.chat_bubble_outline),
+                    tooltip: 'Messages',
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => _ConversationList(onBack: () {}),
+                    )),
+                  ),
+                  if (count > 0)
+                    Positioned(
+                      top: 8, right: 8,
+                      child: IgnorePointer(
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: const BoxDecoration(
+                              color: AppTheme.accent, shape: BoxShape.circle),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                          child: Text('$count',
+                              style: const TextStyle(color: Colors.white, fontSize: 9),
+                              textAlign: TextAlign.center),
+                        ),
+                      ),
+                    ),
+                ]);
+              },
             ),
+            const NotificationIconButton(),
+          ],
         ],
       ),
       body: _error != null
@@ -515,12 +503,10 @@ class _FilterSheetState extends State<_FilterSheet> {
   );
 }
 
-// ── Conversation List — StatefulWidget يُحمِّل البيانات بنفسه ──
+// ── Conversation List — يجلب البيانات دائماً عند الفتح ──
 class _ConversationList extends StatefulWidget {
   final VoidCallback onBack;
-  const _ConversationList({required this.onBack, List<Conversation>? initial})
-      : _initial = initial;
-  final List<Conversation>? _initial;
+  const _ConversationList({required this.onBack});
   @override
   State<_ConversationList> createState() => _ConversationListState();
 }
@@ -528,25 +514,26 @@ class _ConversationList extends StatefulWidget {
 class _ConversationListState extends State<_ConversationList> {
   List<Conversation> _convs = [];
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    if (widget._initial != null && widget._initial!.isNotEmpty) {
-      _convs = widget._initial!;
-      _loading = false;
-    }
-    _fetch(); // دائماً جلب أحدث البيانات
+    _fetch();
   }
 
   Future<void> _fetch() async {
+    if (mounted) setState(() { _loading = true; _error = null; });
     try {
       final auth = context.read<AuthProvider>();
-      if (auth.user == null) return;
+      if (auth.user == null) {
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       final convs = await ApiService.getConversations(auth.user!.email);
       if (mounted) setState(() { _convs = convs; _loading = false; });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.toString(); });
     }
   }
 
@@ -564,7 +551,9 @@ class _ConversationListState extends State<_ConversationList> {
     ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
-        : _convs.isEmpty
+        : _error != null
+            ? ErrorState(message: _error!, onRetry: _fetch)
+            : _convs.isEmpty
             ? const EmptyState(
                 title: 'No conversations yet',
                 subtitle: 'Start chatting from a worker profile',
@@ -582,11 +571,14 @@ class _ConversationListState extends State<_ConversationList> {
                       subtitle: Text(c.lastMessage, maxLines: 1,
                           overflow: TextOverflow.ellipsis),
                       trailing: c.unreadCount > 0
-                          ? badges.Badge(
-                              badgeContent: Text('${c.unreadCount}',
+                          ? Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(
+                                  color: AppTheme.accent, shape: BoxShape.circle),
+                              child: Text('${c.unreadCount}',
                                   style: const TextStyle(
-                                      color: Colors.white, fontSize: 10)),
-                              child: const SizedBox.shrink())
+                                      color: Colors.white, fontSize: 11,
+                                      fontWeight: FontWeight.bold)))
                           : null,
                       onTap: () => Navigator.push(
                         context,

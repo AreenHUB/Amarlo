@@ -61,6 +61,48 @@ class UserUpdate(BaseModel):
     telegram:     Optional[str] = None
 
 
+class WorkReviewCreate(BaseModel):
+    """تقييم عمل مكتمل — 3 محاور + تعليق"""
+    request_id:        str
+    quality_rating:    int = Field(..., ge=1, le=5, description="جودة العمل")
+    punctuality_rating: int = Field(..., ge=1, le=5, description="الالتزام بالموعد")
+    communication_rating: int = Field(..., ge=1, le=5, description="التواصل والاستجابة")
+    comment:           Optional[str] = None
+
+
+class WorkReviewOut(BaseModel):
+    id:                   str
+    reviewer_username:    str
+    reviewer_email:       str
+    reviewee_email:       str    # Worker أو User
+    request_id:           str
+    quality_rating:       int
+    punctuality_rating:   int
+    communication_rating: int
+    overall_rating:       float  # متوسط الثلاثة
+    comment:              Optional[str] = None
+    created_at:           Optional[str] = None
+
+
+class ConductReportCreate(BaseModel):
+    """بلاغ سلوكي — لا يرتبط بعمل مكتمل"""
+    reported_email: str
+    reasons:        list[str]   # قائمة من CONDUCT_REASONS
+    details:        Optional[str] = None
+
+
+CONDUCT_REASONS = [
+    "Unprofessional language",
+    "Harassment or threats",
+    "Scam attempt",
+    "Ghosted after agreement",
+    "Misleading information",
+    "Inappropriate content",
+    "Other",
+]
+
+
+# ─── Legacy (للتوافق مع الكود القديم) ───────────────────
 class ReviewCreate(BaseModel):
     rating:  int = Field(..., ge=1, le=5)
     comment: Optional[str] = None

@@ -37,11 +37,13 @@ posts_collection          = _db["posts"]
 requests_collection       = _db["service_requests"]
 messages_collection       = _db["messages"]
 reviews_collection        = _db["reviews"]
-safe_area_collection      = _db["safe_area"]
-payments_collection       = _db["payments"]
-reports_collection        = _db["reports"]
-blocks_collection         = _db["user_blocks"]
-refresh_tokens_collection = _db["refresh_tokens"]
+safe_area_collection          = _db["safe_area"]
+safe_area_sessions_collection = _db["safe_area_sessions"]
+conduct_reports_collection    = _db["conduct_reports"]
+payments_collection           = _db["payments"]
+reports_collection            = _db["reports"]
+blocks_collection             = _db["user_blocks"]
+refresh_tokens_collection     = _db["refresh_tokens"]
 
 
 # ─── Indexes for performance ─────────────────
@@ -75,6 +77,13 @@ def ensure_indexes() -> None:
     _try_index(posts_collection, [
         IndexModel([("creator_email", ASCENDING)], name="idx_creator"),
         IndexModel([("created_at", ASCENDING)], name="idx_created_at"),
+        # TTL: حذف تلقائي بعد 7 أيام من expires_at
+        # البوستات المغلقة (closed) لا تُحذف لأننا نُزيل expires_at عنها
+        IndexModel(
+            [("expires_at", ASCENDING)],
+            expireAfterSeconds=0,
+            name="ttl_expires_at",
+        ),
     ], "posts")
 
     _try_index(requests_collection, [
@@ -112,6 +121,26 @@ def ensure_indexes() -> None:
             name="uniq_block",
         ),
     ], "blocks")
+
+    _try_index(conduct_reports_collection, [
+        IndexModel([("reporter_email", ASCENDING)], name="idx_reporter"),
+        IndexModel([("reported_email", ASCENDING)], name="idx_reported"),
+        IndexModel([("status",         ASCENDING)], name="idx_status"),
+    ], "conduct_reports")
+
+    _try_index(safe_area_sessions_collection, [
+        IndexModel([("initiator_email",   ASCENDING)], name="idx_initiator"),
+        IndexModel([("participant_email", ASCENDING)], name="idx_participant"),
+        IndexModel([("contract_ref",      ASCENDING)], unique=True, name="uniq_contract_ref"),
+        IndexModel([("status",            ASCENDING)], name="idx_status"),
+        # TTL: احذف الدعوات المنتهية تلقائياً بعد 7 أيام من انتهاء صلاحيتها
+        IndexModel(
+            [("invitation_expires_at", ASCENDING)],
+            expireAfterSeconds=604800,  # 7 days after expiry
+            name="ttl_invitation",
+            sparse=True,
+        ),
+    ], "safe_area_sessions")
 
     logger.info("✅ MongoDB indexes ready")
 

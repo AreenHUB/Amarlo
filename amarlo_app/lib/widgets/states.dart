@@ -1,6 +1,7 @@
 // lib/widgets/states.dart
 import 'package:flutter/material.dart';
 import '../core/theme.dart';
+import '../services/notification_service.dart'; // NotificationIconButton
 
 // ══════════════════════════════════════════════
 //  Error State
@@ -335,6 +336,62 @@ class AppRefreshIndicator extends StatelessWidget {
       backgroundColor: Colors.white,
       strokeWidth: 2.5,
       child: child,
+    );
+  }
+}
+
+// ══════════════════════════════════════════════
+//  NotificationIconButton — AppBar action مشترك
+// ══════════════════════════════════════════════
+class NotificationIconButton extends StatelessWidget {
+  const NotificationIconButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: NotificationManager.instance,
+      builder: (_, __) {
+        final count = NotificationManager.instance.unreadCount;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.notifications_outlined),
+              tooltip: 'Notifications',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const NotificationInboxScreen(),
+                ),
+              ),
+            ),
+            if (count > 0)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.accent,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      count > 99 ? '99+' : '$count',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

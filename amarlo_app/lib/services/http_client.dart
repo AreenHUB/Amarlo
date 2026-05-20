@@ -125,6 +125,10 @@ class HttpClient {
         _refreshCompleter!.complete(false);
         return false;
       }
+    } on SocketException {
+      // خطأ شبكة — لا تمسح الـ tokens، السيرفر قد يكون مؤقتاً غير متاح
+      _refreshCompleter!.complete(false);
+      return false;
     } catch (_) {
       await _clearTokens();
       _refreshCompleter!.complete(false);
@@ -203,37 +207,39 @@ class HttpClient {
     String url, {
     required String fieldName,
     File? file,
+    File? proofImage,          // صورة إثبات اختيارية (للملفات غير الصور)
     Map<String, String>? fields,
     bool auth = true,
   }) async {
     final token = auth ? await _accessToken() : null;
-    final req = http.MultipartRequest('POST', Uri.parse(url));
-    if (token != null) req.headers['Authorization'] = 'Bearer $token';
-    if (fields != null) req.fields.addAll(fields);
-    if (file != null && file.path.isNotEmpty && await file.exists()) {
-      req.files.add(await http.MultipartFile.fromPath(
-        fieldName, file.path,
-        contentType: _mediaTypeFor(file.path),
-      ));
+
+    Future<http.MultipartRequest> buildReq(String? tkn) async {
+      final req = http.MultipartRequest('POST', Uri.parse(url));
+      if (tkn != null) req.headers['Authorization'] = 'Bearer $tkn';
+      if (fields != null) req.fields.addAll(fields);
+      if (file != null && file.path.isNotEmpty && await file.exists()) {
+        req.files.add(await http.MultipartFile.fromPath(
+          fieldName, file.path,
+          contentType: _mediaTypeFor(file.path),
+        ));
+      }
+      if (proofImage != null && proofImage.path.isNotEmpty && await proofImage.exists()) {
+        req.files.add(await http.MultipartFile.fromPath(
+          'proof_image', proofImage.path,
+          contentType: _mediaTypeFor(proofImage.path),
+        ));
+      }
+      return req;
     }
-    final streamed = await req.send().timeout(const Duration(seconds: 60));
+
+    final streamed = await (await buildReq(token)).send().timeout(const Duration(seconds: 60));
     final res = await http.Response.fromStream(streamed);
 
-    // Auto-refresh on 401
     if (res.statusCode == 401 && auth) {
       final refreshed = await _tryRefresh();
       if (refreshed) {
         final newToken = await _accessToken();
-        final req2 = http.MultipartRequest('POST', Uri.parse(url));
-        if (newToken != null) req2.headers['Authorization'] = 'Bearer $newToken';
-        if (fields != null) req2.fields.addAll(fields);
-        if (file != null && file.path.isNotEmpty && await file.exists()) {
-          req2.files.add(await http.MultipartFile.fromPath(
-            fieldName, file.path,
-            contentType: _mediaTypeFor(file.path),
-          ));
-        }
-        final s2 = await req2.send().timeout(const Duration(seconds: 60));
+        final s2 = await (await buildReq(newToken)).send().timeout(const Duration(seconds: 60));
         return _handle(await http.Response.fromStream(s2));
       }
     }

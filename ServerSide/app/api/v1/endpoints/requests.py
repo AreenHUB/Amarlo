@@ -99,6 +99,20 @@ def _req_or_404(request_id: str) -> dict:
     return doc
 
 
+# ─── Single request ─────────────────────────────────────
+
+@router.get("/{request_id}", response_model=RequestOut)
+async def get_request(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """جلب طلب واحد بالـ ID — للطرفين فقط."""
+    req = _req_or_404(request_id)
+    if current_user["email"] not in (req["user_email"], req["worker_email"]):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return RequestOut.from_doc(req)
+
+
 # ─── User endpoints ──────────────────────────────────────
 
 @router.get("/user/{user_id}", response_model=PagedResponse[RequestOut])
@@ -222,6 +236,104 @@ async def mark_ready(request_id: str, current_user: dict = Depends(get_current_u
         "service_name": req.get("service_name", ""),
     })
     return {"message": "Marked as ready for delivery"}
+
+
+# ─── Deadline negotiation (Post → Safe Area flow) ────────
+# الـ Worker يحدد deadline → الـ User يوافق أو يرفض → تُفعّل Safe Area
+
+@router.put("/{request_id}/propose-deadline", response_model=MessageResponse)
+async def propose_deadline(
+    request_id: str,
+    deadline:   str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Worker يقترح deadline — يُرسل للـ User للموافقة."""
+    req = _req_or_404(request_id)
+    if req["worker_email"] != current_user["email"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if req["status"] != RequestStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Request is not pending")
+    if not req.get("safe_area_enabled"):
+        raise HTTPException(status_code=400, detail="Safe Area not enabled for this request")
+
+    try:
+        deadline_dt = datetime.fromisoformat(deadline)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid deadline (ISO 8601 required)")
+
+    requests_collection.update_one(
+        {"_id": req["_id"]},
+        {"$set": {
+            "proposed_deadline": deadline_dt,
+            "deadline_status":   "pending_user_approval",
+        }},
+    )
+    await _notify(req["user_email"], {
+        "type":           "deadline_proposed",
+        "service_name":   req.get("service_name", ""),
+        "worker_name":    current_user.get("username", ""),
+        "deadline":       deadline_dt.isoformat(),
+        "request_id":     request_id,
+        "agreed_price":   req.get("agreed_price", 0),
+    })
+    return {"message": "Deadline proposed, waiting for user approval"}
+
+
+@router.put("/{request_id}/confirm-deadline", response_model=MessageResponse)
+async def confirm_deadline(
+    request_id: str,
+    accept: bool = True,
+    current_user: dict = Depends(get_current_user),
+):
+    """User يوافق أو يرفض الـ deadline المقترح."""
+    req = _req_or_404(request_id)
+    if req["user_email"] != current_user["email"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if req.get("deadline_status") != "pending_user_approval":
+        raise HTTPException(status_code=400, detail="No pending deadline to confirm")
+
+    if accept:
+        deadline_dt = req["proposed_deadline"]
+        requests_collection.update_one(
+            {"_id": req["_id"]},
+            {"$set": {
+                "status":          RequestStatus.ACCEPTED,
+                "deadline":        deadline_dt,
+                "deadline_status": "confirmed",
+                "safe_area_active": True,
+            }},
+        )
+        # Worker: الموعد مقبول، Safe Area مفتوحة — ارفع عملك
+        await _notify(req["worker_email"], {
+            "type":         "deadline_confirmed",
+            "service_name": req.get("service_name", ""),
+            "user_name":    current_user.get("username", ""),
+            "deadline":     deadline_dt.isoformat(),
+            "request_id":   request_id,
+        })
+        # User: تأكيد أن الجلسة فُتحت رسمياً
+        await _notify(current_user["email"], {
+            "type":         "safe_area_opened",
+            "service_name": req.get("service_name", ""),
+            "deadline":     deadline_dt.isoformat(),
+            "request_id":   request_id,
+        })
+        return {"message": "Deadline confirmed. Safe Area is now active."}
+    else:
+        requests_collection.update_one(
+            {"_id": req["_id"]},
+            {"$set": {
+                "deadline_status": "rejected",
+                "proposed_deadline": None,
+            }},
+        )
+        await _notify(req["worker_email"], {
+            "type":         "deadline_rejected",
+            "service_name": req.get("service_name", ""),
+            "user_name":    current_user.get("username", ""),
+            "request_id":   request_id,
+        })
+        return {"message": "Deadline rejected. Worker can propose a new one."}
 
 
 @router.delete("/{request_id}", status_code=204)
