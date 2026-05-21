@@ -15,6 +15,7 @@ class User {
   final String? facebook;
   final String? instagram;
   final String? telegram;
+  final String? linkedin;
   final String? number;
   final String? city;
 
@@ -29,6 +30,7 @@ class User {
     this.facebook,
     this.instagram,
     this.telegram,
+    this.linkedin,
     this.number,
     this.city,
   });
@@ -39,19 +41,19 @@ class User {
         email:        j['email']    ?? '',
         userType:     j['userType'] ?? '',
         speciality:   j['speciality'],
-        // ← تطبيق fixImageUrl لضمان الـ host الصحيح
         imageUrl:     AppConstants.fixImageUrl(j['image_url']),
         introduction: j['introduction'],
         facebook:     j['facebook'],
         instagram:    j['instagram'],
         telegram:     j['telegram'],
+        linkedin:     j['linkedin'],
         number:       j['number'],
         city:         j['city'],
       );
 
   User copyWith({
     String? username, String? imageUrl, String? introduction,
-    String? facebook, String? instagram, String? telegram,
+    String? facebook, String? instagram, String? telegram, String? linkedin,
     String? number, String? city, String? speciality,
   }) =>
       User(
@@ -63,6 +65,7 @@ class User {
         facebook:     facebook     ?? this.facebook,
         instagram:    instagram    ?? this.instagram,
         telegram:     telegram     ?? this.telegram,
+        linkedin:     linkedin     ?? this.linkedin,
         number:       number       ?? this.number,
         city:         city         ?? this.city,
       );

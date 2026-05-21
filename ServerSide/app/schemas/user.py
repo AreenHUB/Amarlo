@@ -29,6 +29,7 @@ class UserOut(BaseModel):
     facebook:     Optional[str] = None
     instagram:    Optional[str] = None
     telegram:     Optional[str] = None
+    linkedin:     Optional[str] = None
     number:       Optional[str] = None
     city:         Optional[str] = None
 
@@ -45,6 +46,7 @@ class UserOut(BaseModel):
             facebook=    doc.get("facebook"),
             instagram=   doc.get("instagram"),
             telegram=    doc.get("telegram"),
+            linkedin=    doc.get("linkedin"),
             number=      doc.get("number"),
             city=        doc.get("city"),
         )
@@ -59,6 +61,7 @@ class UserUpdate(BaseModel):
     facebook:     Optional[str] = None
     instagram:    Optional[str] = None
     telegram:     Optional[str] = None
+    linkedin:     Optional[str] = None
 
 
 class WorkReviewCreate(BaseModel):

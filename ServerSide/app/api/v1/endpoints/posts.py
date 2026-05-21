@@ -11,6 +11,7 @@ PUT    /posts/{id}/offers/{oid}/accept
 PUT    /posts/{id}/offers/{oid}/reject
 DELETE /posts/{id}/offers/{oid}
 """
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -116,9 +117,10 @@ async def public_posts(
     if category:
         query["category"] = category
     if search:
+        safe_search = re.escape(search.strip())
         query["$or"] = [
-            {"title": {"$regex": search, "$options": "i"}},
-            {"description": {"$regex": search, "$options": "i"}},
+            {"title":       {"$regex": safe_search, "$options": "i"}},
+            {"description": {"$regex": safe_search, "$options": "i"}},
         ]
 
     total = posts_collection.count_documents(query)

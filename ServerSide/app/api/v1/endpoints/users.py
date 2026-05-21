@@ -77,6 +77,7 @@ async def update_user(
     facebook:     Optional[str] = Form(None),
     instagram:    Optional[str] = Form(None),
     telegram:     Optional[str] = Form(None),
+    linkedin:     Optional[str] = Form(None),
     image:        Optional[UploadFile] = File(None),
     request:      Request = None,
     current_user: dict = Depends(get_current_user),
@@ -88,7 +89,8 @@ async def update_user(
     for field, val in {
         "username": username, "number": number, "city": city,
         "speciality": speciality, "introduction": introduction,
-        "facebook": facebook, "instagram": instagram, "telegram": telegram,
+        "facebook": facebook, "instagram": instagram,
+        "telegram": telegram, "linkedin": linkedin,
     }.items():
         if val is not None:
             update[field] = val

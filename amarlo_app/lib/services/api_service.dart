@@ -314,7 +314,7 @@ class ApiService {
     String userId, {
     String? username, String? number, String? city,
     String? speciality, String? introduction,
-    String? facebook, String? instagram, String? telegram,
+    String? facebook, String? instagram, String? telegram, String? linkedin,
     File? image,
   }) async {
     final data = await api.multipartPut(
@@ -322,14 +322,15 @@ class ApiService {
       fieldName: 'image',
       file: image,
       fields: {
-        if (username != null) 'username': username,
-        if (number != null) 'number': number,
-        if (city != null) 'city': city,
-        if (speciality != null) 'speciality': speciality,
+        if (username != null)     'username':     username,
+        if (number != null)       'number':       number,
+        if (city != null)         'city':         city,
+        if (speciality != null)   'speciality':   speciality,
         if (introduction != null) 'introduction': introduction,
-        if (facebook != null) 'facebook': facebook,
-        if (instagram != null) 'instagram': instagram,
-        if (telegram != null) 'telegram': telegram,
+        if (facebook != null)     'facebook':     facebook,
+        if (instagram != null)    'instagram':    instagram,
+        if (telegram != null)     'telegram':     telegram,
+        if (linkedin != null)     'linkedin':     linkedin,
       },
     );
     return User.fromJson(data as Map<String, dynamic>);
@@ -338,13 +339,13 @@ class ApiService {
   static Future<User> updateProfile(String userId, {
     String? username, String? number, String? city,
     String? speciality, String? introduction,
-    String? facebook, String? instagram, String? telegram,
+    String? facebook, String? instagram, String? telegram, String? linkedin,
     File? image,
   }) => updateUser(userId,
       username: username, number: number, city: city,
       speciality: speciality, introduction: introduction,
       facebook: facebook, instagram: instagram, telegram: telegram,
-      image: image);
+      linkedin: linkedin, image: image);
 
   static Future<List<Review>> getReviews(String workerEmail) async {
     final data = await api.get(AppConstants.reviewsUrl(workerEmail));

@@ -34,11 +34,80 @@ from app.schemas.common import MessageResponse
 
 router = APIRouter(prefix="/safe-area", tags=["Safe Area"])
 
+# Allowed MIME types for work uploads — enforced against actual file content
 ALLOWED_TYPES = {
     "image/jpeg", "image/jpg", "image/png", "image/webp",
-    "application/pdf", "application/octet-stream",
-    "application/zip", "text/plain", "application/x-zip-compressed",
+    "application/pdf",
+    "application/zip", "application/x-zip-compressed",
+    "text/plain",
+    "application/octet-stream",  # generic binary fallback
 }
+
+# Safe file extensions that map to the allowed types above
+ALLOWED_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".webp",
+    ".pdf",
+    ".zip",
+    ".txt",
+    ".py", ".js", ".ts", ".html", ".css",  # code files delivered as text/plain or octet-stream
+    ".bin",
+}
+
+MAX_SAFE_AREA_BYTES = settings.MAX_SAFE_AREA_SIZE_MB * 1024 * 1024
+
+# Magic bytes for the most common types — prevents content-type spoofing
+_MAGIC: list[tuple[bytes, str]] = [
+    (b"\xff\xd8\xff",           "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n",     "image/png"),
+    (b"RIFF",                   "image/webp"),   # RIFF....WEBP
+    (b"%PDF",                   "application/pdf"),
+    (b"PK\x03\x04",            "application/zip"),
+]
+
+def _detect_mime(data: bytes) -> str:
+    """Return MIME type from magic bytes; fall back to octet-stream."""
+    for magic, mime in _MAGIC:
+        if data[:len(magic)] == magic:
+            return mime
+    # WebP has RIFF + WEBP at offset 8
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"
+
+def _validate_upload(content: bytes, filename: str, declared_type: str) -> str:
+    """
+    Validate file upload security. Returns the real MIME type.
+    Raises HTTPException on any violation.
+    """
+    # 1. Size limit
+    if len(content) > MAX_SAFE_AREA_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {settings.MAX_SAFE_AREA_SIZE_MB} MB.",
+        )
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="File is empty.")
+
+    # 2. Extension whitelist — from server-cleaned filename only
+    suffix = Path(filename).suffix.lower() if filename else ""
+    if suffix and suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type '{suffix}' is not allowed.",
+        )
+
+    # 3. Magic-byte detection — actual file content, not client header
+    real_mime = _detect_mime(content)
+
+    # 4. Declared content-type must be in the allowed set
+    #    (we trust our magic detection over client claim)
+    if real_mime not in ALLOWED_TYPES and declared_type not in ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="File type is not supported.",
+        )
+
+    return real_mime
 
 
 # ─── Helpers ─────────────────────────────────────────────
@@ -97,16 +166,24 @@ async def upload_work(
 
     # ── حفظ الملف الرئيسي ───────────────────────────────
     content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Empty file")
 
-    ext = Path(file.filename or "work").suffix or ".bin"
-    filename = f"{uuid.uuid4().hex}{ext}"
+    # Validate: size, extension, and magic-byte MIME — all three must pass
+    real_mime = _validate_upload(
+        content,
+        file.filename or "",
+        file.content_type or "",
+    )
+
+    # Use a safe, server-generated filename — never trust the client filename
+    safe_ext  = Path(file.filename or "work").suffix.lower() or ".bin"
+    if safe_ext not in ALLOWED_EXTENSIONS:
+        safe_ext = ".bin"
+    filename  = f"{uuid.uuid4().hex}{safe_ext}"
     file_path = settings.SAFE_AREA_PATH / filename
     file_path.write_bytes(content)
 
-    is_image = (file.content_type or "").startswith("image/")
-    ct = file.content_type or "application/octet-stream"
+    is_image = real_mime.startswith("image/")
+    ct       = real_mime  # use detected type, not client-supplied header
 
     # ── صورة الإثبات (proof_image) ───────────────────────
     # مطلوبة للملفات غير الصور
@@ -119,13 +196,18 @@ async def upload_work(
                        "Upload a screenshot or photo proving the work is complete."
             )
         proof_content = await proof_image.read()
-        if not proof_content:
-            raise HTTPException(status_code=400, detail="Proof image is empty")
-        if not (proof_image.content_type or "").startswith("image/"):
-            raise HTTPException(status_code=400, detail="Proof image must be an image file")
+        proof_real_mime = _validate_upload(
+            proof_content,
+            proof_image.filename or "",
+            proof_image.content_type or "",
+        )
+        if not proof_real_mime.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Proof image must be an image file.")
 
-        proof_ext  = Path(proof_image.filename).suffix or ".jpg"
-        proof_name = f"proof_{uuid.uuid4().hex}{proof_ext}"
+        proof_safe_ext = Path(proof_image.filename).suffix.lower() or ".jpg"
+        if proof_safe_ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+            proof_safe_ext = ".jpg"
+        proof_name = f"proof_{uuid.uuid4().hex}{proof_safe_ext}"
         proof_path = settings.SAFE_AREA_PATH / proof_name
         proof_path.write_bytes(proof_content)
         proof_path_str = str(proof_path)

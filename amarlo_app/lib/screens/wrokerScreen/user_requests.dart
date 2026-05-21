@@ -129,23 +129,17 @@ class _UserRequestsScreenState extends State<UserRequestsScreen> {
                     ),
                   ),
 
-                // Posts grid
+                // Posts list
                 Expanded(
                   child: _filtered.isEmpty
                       ? const Center(child: Text('No posts found',
                           style: TextStyle(color: Colors.grey)))
                       : RefreshIndicator(
                           onRefresh: _fetch,
-                          child: GridView.builder(
+                          child: ListView.separated(
                             padding: const EdgeInsets.all(12),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              crossAxisSpacing: 10,
-                              mainAxisSpacing: 10,
-                              childAspectRatio: 0.78,
-                            ),
                             itemCount: _filtered.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 10),
                             itemBuilder: (_, i) => _PostCard(post: _filtered[i]),
                           ),
                         ),
@@ -163,19 +157,30 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.read<AuthProvider>();
+    final auth    = context.read<AuthProvider>();
+    final myEmail = auth.user?.email ?? '';
+
+    // Find this worker's existing offer if any
+    PostOffer? myOffer;
+    for (final o in post.offers) {
+      if (o.workerEmail == myEmail) { myOffer = o; break; }
+    }
+    final sent    = myOffer != null;
+    final canEdit = myOffer?.status == 'pending';
+    final closed  = post.status == 'closed';
 
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape:       RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,   // wrap content — no overflow
         children: [
-          // Category + days left banner
+          // ── Category + expiry banner ──────────────────
           Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            color: Colors.brown[50],
+            width:   double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            color:   Colors.brown[50],
             child: Row(children: [
               Expanded(
                 child: Text(
@@ -185,9 +190,10 @@ class _PostCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (post.daysLeft != null)
+              if (post.daysLeft != null) ...[
+                const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
                     color: post.daysLeft! <= 1
                         ? Colors.red[100]
@@ -197,11 +203,9 @@ class _PostCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    post.daysLeft! == 0
-                        ? 'Expires today'
-                        : '${post.daysLeft}d left',
+                    post.daysLeft! == 0 ? 'Expires today' : '${post.daysLeft}d left',
                     style: TextStyle(
-                      fontSize: 9,
+                      fontSize:   9,
                       fontWeight: FontWeight.bold,
                       color: post.daysLeft! <= 1
                           ? Colors.red[800]
@@ -211,116 +215,116 @@ class _PostCard extends StatelessWidget {
                     ),
                   ),
                 ),
+              ],
+              if (closed) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color:        Colors.grey[200],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.lock_outline, size: 11, color: Colors.grey),
+                    SizedBox(width: 3),
+                    Text('Closed', style: TextStyle(fontSize: 9, color: Colors.grey,
+                        fontWeight: FontWeight.bold)),
+                  ]),
+                ),
+              ],
             ]),
           ),
 
+          // ── Body ─────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(post.title,
-                    maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                const SizedBox(height: 4),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                const SizedBox(height: 5),
                 Text(post.description,
                     maxLines: 3, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.black54, fontSize: 12)),
-                const SizedBox(height: 6),
-                Text(post.priceRange,
-                    style: const TextStyle(
-                        color: Colors.green, fontWeight: FontWeight.w600, fontSize: 13)),
-                const SizedBox(height: 2),
-                Text('by ${post.creatorUsername}',
-                    style: const TextStyle(color: Colors.grey, fontSize: 11),
-                    overflow: TextOverflow.ellipsis),
+                    style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                const SizedBox(height: 8),
+                Row(children: [
+                  const Icon(Icons.attach_money, size: 15, color: Colors.green),
+                  Text(post.priceRange,
+                      style: const TextStyle(
+                          color: Colors.green, fontWeight: FontWeight.w600, fontSize: 13)),
+                  const Spacer(),
+                  const Icon(Icons.person_outline, size: 13, color: Colors.grey),
+                  const SizedBox(width: 3),
+                  Text(post.creatorUsername,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      overflow: TextOverflow.ellipsis),
+                ]),
               ],
             ),
           ),
-          const Spacer(),
 
-          // Actions
+          const Divider(height: 1),
+
+          // ── Actions ──────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-            child: Row(
-              children: [
-                Expanded(child: Builder(builder: (_) {
-                  // البوست مغلق — تم الاتفاق مع عامل آخر
-                  if (post.status == 'closed') {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.lock_outline,
-                              size: 14, color: Colors.grey),
-                          SizedBox(width: 4),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+            child: Row(children: [
+              Expanded(
+                child: closed
+                    ? Container(
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                        decoration: BoxDecoration(
+                          color:        Colors.grey[100],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.lock_outline, size: 14, color: Colors.grey),
+                          SizedBox(width: 6),
                           Text('Deal agreed',
-                              style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
+                              style: TextStyle(color: Colors.grey, fontSize: 13,
                                   fontWeight: FontWeight.w500)),
-                        ],
+                        ]),
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: auth.isLoggedIn
+                            ? () => _showOfferForm(context, post,
+                                existingOffer: canEdit ? myOffer : null)
+                            : null,
+                        icon: Icon(
+                          sent ? (canEdit ? Icons.edit : Icons.check) : Icons.send,
+                          size: 15,
+                        ),
+                        label: Text(
+                          sent
+                              ? (canEdit ? 'Edit Offer' : 'Offer Sent')
+                              : 'Send Offer',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          padding:         const EdgeInsets.symmetric(vertical: 10),
+                          backgroundColor: sent
+                              ? (canEdit ? Colors.orange : Colors.grey)
+                              : null,
+                        ),
                       ),
-                    );
-                  }
-
-                  // تحقق إذا Worker أرسل offer مسبقاً
-                  final myEmail = auth.user?.email ?? '';
-                  PostOffer? myOffer;
-                  for (final o in post.offers) {
-                    if (o.workerEmail == myEmail) { myOffer = o; break; }
-                  }
-                  final sent    = myOffer != null;
-                  final canEdit = myOffer?.status == 'pending';
-
-                  return ElevatedButton.icon(
-                    onPressed: auth.isLoggedIn
-                        ? () => _showOfferForm(context, post,
-                            existingOffer: canEdit ? myOffer : null)
-                        : null,
-                    icon: Icon(
-                      sent ? (canEdit ? Icons.edit : Icons.check) : Icons.send,
-                      size: 14,
-                    ),
-                    label: Text(
-                      sent
-                          ? (canEdit ? 'Edit Offer' : 'Offer Sent')
-                          : 'Send Offer',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      backgroundColor: sent
-                          ? (canEdit ? Colors.orange : Colors.grey)
-                          : null,
-                    ),
-                  );
-                })),
-                const SizedBox(width: 6),
-                InkWell(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ChatScreen(
-                        recipientEmail: post.creatorEmail,
-                        recipientUsername: post.creatorUsername,
-                      ),
-                    ),
+              ),
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: () => Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => ChatScreen(
+                    recipientEmail:    post.creatorEmail,
+                    recipientUsername: post.creatorUsername,
                   ),
-                  child: const CircleAvatar(
-                    radius: 16,
-                    backgroundColor: Colors.brown,
-                    child: Icon(Icons.chat, size: 16, color: Colors.white),
-                  ),
+                )),
+                borderRadius: BorderRadius.circular(20),
+                child: const CircleAvatar(
+                  radius:          18,
+                  backgroundColor: Colors.brown,
+                  child: Icon(Icons.chat, size: 17, color: Colors.white),
                 ),
-              ],
-            ),
+              ),
+            ]),
           ),
         ],
       ),
@@ -396,7 +400,7 @@ class _OfferFormState extends State<_OfferForm> {
         ));
       }
     } on ApiException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _sending = false);
     }

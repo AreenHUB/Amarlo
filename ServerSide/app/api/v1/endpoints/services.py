@@ -9,6 +9,7 @@ GET  /worker-services    — خدمات العامل الحالي
 GET  /categories         — قائمة التصنيفات
 POST /services/{id}/request  — إرسال طلب على خدمة (الإصلاح الرئيسي)
 """
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -89,10 +90,11 @@ async def list_services(
         if max_price is not None:
             query["price"]["$lte"] = max_price
     if search:
+        safe_search = re.escape(search.strip())
         query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"description": {"$regex": search, "$options": "i"}},
-            {"location": {"$regex": search, "$options": "i"}},
+            {"name":        {"$regex": safe_search, "$options": "i"}},
+            {"description": {"$regex": safe_search, "$options": "i"}},
+            {"location":    {"$regex": safe_search, "$options": "i"}},
         ]
 
     total = services_collection.count_documents(query)

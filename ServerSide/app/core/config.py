@@ -46,7 +46,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
 
     # Uploads
-    MAX_IMAGE_SIZE_MB: int = 10
+    MAX_IMAGE_SIZE_MB: int = 10    # profile / service images
+    MAX_SAFE_AREA_SIZE_MB: int = 50 # safe area work files (code zips, PDFs, etc.)
     UPLOAD_DIR: str = "uploads"
 
     # Pagination

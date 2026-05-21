@@ -34,6 +34,7 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
   final _fbCtrl        = TextEditingController();
   final _igCtrl        = TextEditingController();
   final _tgCtrl        = TextEditingController();
+  final _liCtrl        = TextEditingController();
   final _usernameCtrl  = TextEditingController();
   final _numberCtrl    = TextEditingController();
   final _cityCtrl      = TextEditingController();
@@ -62,6 +63,7 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
         _fbCtrl.text = worker.facebook ?? '';
         _igCtrl.text = worker.instagram ?? '';
         _tgCtrl.text = worker.telegram ?? '';
+        _liCtrl.text = worker.linkedin ?? '';
         _usernameCtrl.text = worker.username;
         _numberCtrl.text = worker.number ?? '';
         _cityCtrl.text = worker.city ?? '';
@@ -96,6 +98,7 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
         facebook: _fbCtrl.text.trim(),
         instagram: _igCtrl.text.trim(),
         telegram: _tgCtrl.text.trim(),
+        linkedin: _liCtrl.text.trim(),
         image: _newImage,
       );
       if (!mounted) return;
@@ -115,7 +118,7 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
 
   @override
   void dispose() {
-    for (final c in [_introCtrl,_fbCtrl,_igCtrl,_tgCtrl,
+    for (final c in [_introCtrl,_fbCtrl,_igCtrl,_tgCtrl,_liCtrl,
         _usernameCtrl,_numberCtrl,_cityCtrl,_specCtrl]) { c.dispose(); }
     super.dispose();
   }
@@ -197,9 +200,10 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
               ]),
 
               _section('Social Media', [
-                _field(_fbCtrl, 'Facebook', const FaIcon(FontAwesomeIcons.facebook, size: 18, color: Color(0xFF1877F2))),
-                _field(_igCtrl, 'Instagram', const FaIcon(FontAwesomeIcons.instagram, size: 18, color: Color(0xFFE1306C))),
-                _field(_tgCtrl, 'Telegram', const FaIcon(FontAwesomeIcons.telegram, size: 18, color: Color(0xFF0088CC))),
+                _field(_fbCtrl, 'Facebook username or URL',  const FaIcon(FontAwesomeIcons.facebook,  size: 18, color: Color(0xFF1877F2))),
+                _field(_igCtrl, 'Instagram username or URL', const FaIcon(FontAwesomeIcons.instagram, size: 18, color: Color(0xFFE1306C))),
+                _field(_tgCtrl, 'Telegram username or URL',  const FaIcon(FontAwesomeIcons.telegram,  size: 18, color: Color(0xFF0088CC))),
+                _field(_liCtrl, 'LinkedIn username or URL',  const FaIcon(FontAwesomeIcons.linkedin,  size: 18, color: Color(0xFF0A66C2))),
               ]),
 
               ElevatedButton.icon(
