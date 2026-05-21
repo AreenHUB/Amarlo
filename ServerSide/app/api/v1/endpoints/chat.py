@@ -269,6 +269,8 @@ async def get_messages(
 @router.get("/conversations/{user_email}")
 async def get_conversations(
     user_email:   str,
+    limit:        int = Query(50, ge=1, le=100),
+    skip:         int = Query(0,  ge=0),
     current_user: dict = Depends(get_current_user),
 ):
     if current_user["email"] != user_email:
@@ -290,13 +292,18 @@ async def get_conversations(
             "timestamp":    {"$first": "$timestamp"},
         }},
         {"$sort": {"timestamp": -1}},
+        {"$skip":  skip},
+        {"$limit": limit},
     ]
 
     results = list(messages_collection.aggregate(pipeline))
     conversations = []
     for r in results:
         other_email = r["_id"]
-        other = users_collection.find_one({"email": other_email}) or {}
+        other = users_collection.find_one(
+            {"email": other_email},
+            {"username": 1, "image_url": 1},   # project only needed fields
+        ) or {}
         unread = messages_collection.count_documents({
             "sender_email":    other_email,
             "recipient_email": user_email,

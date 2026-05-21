@@ -142,6 +142,25 @@ def ensure_indexes() -> None:
         ),
     ], "safe_area_sessions")
 
+    # payments.request_id — used in balance aggregation $lookup and send_payment duplicate check
+    _try_index(payments_collection, [
+        IndexModel([("request_id",   ASCENDING)], name="idx_request_id"),
+        IndexModel([("worker_email", ASCENDING)], name="idx_worker_email"),
+    ], "payments")
+
+    # safe_area.request_id — looked up on every upload / preview / confirm call
+    _try_index(safe_area_collection, [
+        IndexModel([("request_id", ASCENDING)], unique=True, name="uniq_request_id"),
+    ], "safe_area")
+
+    # messages: unread count queries (recipient + read flag)
+    _try_index(messages_collection, [
+        IndexModel(
+            [("recipient_email", ASCENDING), ("read", ASCENDING)],
+            name="idx_recipient_unread",
+        ),
+    ], "messages_unread")
+
     logger.info("✅ MongoDB indexes ready")
 
 
