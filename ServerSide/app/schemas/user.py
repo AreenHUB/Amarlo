@@ -70,7 +70,7 @@ class WorkReviewCreate(BaseModel):
     quality_rating:    int = Field(..., ge=1, le=5, description="جودة العمل")
     punctuality_rating: int = Field(..., ge=1, le=5, description="الالتزام بالموعد")
     communication_rating: int = Field(..., ge=1, le=5, description="التواصل والاستجابة")
-    comment:           Optional[str] = None
+    comment:           Optional[str] = Field(None, max_length=2000)
 
 
 class WorkReviewOut(BaseModel):

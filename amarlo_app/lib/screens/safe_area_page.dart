@@ -106,14 +106,24 @@ class _SafeAreaPageState extends State<SafeAreaPage> {
   bool    _pickedIsImage = false;
   File?   _pickedProof;
 
+  static const _maxUploadBytes = 50 * 1024 * 1024; // 50 MB — matches backend
+
   Future<void> _pickWorkFile() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.any);
     if (result == null || result.files.isEmpty) return;
+
+    final picked = result.files.first;
+    // Guard against files too large to upload before hitting the network
+    if ((picked.size) > _maxUploadBytes) {
+      _snack('File is too large. Maximum allowed size is 50 MB.');
+      return;
+    }
+
     setState(() {
-      _pickedFile     = File(result.files.first.path!);
-      _pickedFileName = result.files.first.name;
-      _pickedIsImage  = _isImageMime(result.files.first.extension ?? '');
-      _pickedProof    = null; // إعادة تعيين الـ proof إذا تغيّر الملف
+      _pickedFile     = File(picked.path!);
+      _pickedFileName = picked.name;
+      _pickedIsImage  = _isImageMime(picked.extension ?? '');
+      _pickedProof    = null; // reset proof if file changes
     });
   }
 
@@ -306,10 +316,12 @@ class _SafeAreaPageState extends State<SafeAreaPage> {
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => WorkReviewSheet(
-        revieweeEmail:           widget.request.workerEmail,
-        revieweeUsername:        widget.request.workerEmail,
-        preselectedRequestId:    widget.request.id,
-        preselectedServiceName:  widget.request.serviceName,
+        revieweeEmail:          widget.request.workerEmail,
+        revieweeUsername:       widget.request.workerUsername.isNotEmpty
+            ? widget.request.workerUsername
+            : widget.request.workerEmail,
+        preselectedRequestId:   widget.request.id,
+        preselectedServiceName: widget.request.serviceName,
       ),
     ).then((submitted) {
       if (submitted == true) setState(() => _reviewSubmitted = true);

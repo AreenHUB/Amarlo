@@ -295,6 +295,7 @@ class ServiceRequest {
   final String userEmail;
   final String userName;
   final String workerEmail;
+  final String workerUsername;
   final String status;
   final String createdAt;
   final String? deadline;
@@ -309,7 +310,8 @@ class ServiceRequest {
   const ServiceRequest({
     required this.id, required this.serviceId, required this.serviceName,
     this.servicePrice = 0, this.agreedPrice = 0,
-    required this.userEmail, required this.userName, required this.workerEmail,
+    required this.userEmail, required this.userName,
+    required this.workerEmail, this.workerUsername = '',
     required this.status, required this.createdAt,
     this.deadline, this.proposedDeadline, this.deadlineStatus,
     this.proposedPrice, this.priceStatus,
@@ -328,10 +330,11 @@ class ServiceRequest {
         serviceName:      j['service_name']   ?? '',
         servicePrice:     (j['service_price'] as num?)?.toDouble() ?? 0,
         agreedPrice:      (j['agreed_price']  as num?)?.toDouble() ?? 0,
-        userEmail:        j['user_email']     ?? '',
-        userName:         j['user_name']      ?? '',
-        workerEmail:      j['worker_email']   ?? '',
-        status:           j['status']         ?? 'pending',
+        userEmail:        j['user_email']       ?? '',
+        userName:         j['user_name']        ?? '',
+        workerEmail:      j['worker_email']     ?? '',
+        workerUsername:   j['worker_username']  ?? '',
+        status:           j['status']           ?? 'pending',
         createdAt:        j['created_at']     ?? '',
         deadline:         j['deadline'],
         proposedDeadline: j['proposed_deadline'],
@@ -347,7 +350,8 @@ class ServiceRequest {
       ServiceRequest(
         id: id, serviceId: serviceId, serviceName: serviceName,
         servicePrice: servicePrice, agreedPrice: agreedPrice,
-        userEmail: userEmail, userName: userName, workerEmail: workerEmail,
+        userEmail: userEmail, userName: userName,
+        workerEmail: workerEmail, workerUsername: workerUsername,
         createdAt: createdAt, safeAreaActive: safeAreaActive,
         safeAreaEnabled: safeAreaEnabled, deliveryType: deliveryType,
         proposedDeadline: proposedDeadline, deadlineStatus: deadlineStatus,
