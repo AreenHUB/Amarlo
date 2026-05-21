@@ -338,6 +338,8 @@ async def accept_offer(
             "worker_email":     worker_email,
             "worker_username":  offer.get("worker_username", ""),
             "agreed_price":     agreed_price,
+            "service_price":    agreed_price,   # consistent with direct-service requests
+            "delivery_type":    doc.get("delivery_type", "online"),
             "safe_area_enabled": safe_area_enabled,
             # Safe area تُفعَّل لاحقاً بعد موافقة الطرفين على الـ deadline
             "safe_area_active": False,

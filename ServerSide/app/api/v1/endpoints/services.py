@@ -258,17 +258,21 @@ async def request_service(
     worker = users_collection.find_one({"email": service["worker_email"]}) or {}
 
     delivery_type = service.get("delivery_type", "online")
+    price         = service.get("price", 0)
     doc = {
-        "service_id":    service_id,
-        "service_name":  service["name"],
-        "service_price": service.get("price", 0),
-        "user_email":    current_user["email"],
-        "user_name":     current_user.get("username", ""),
-        "worker_email":  service["worker_email"],
-        "status":        "pending",
-        "created_at":    datetime.now(timezone.utc),
-        "safe_area_active": False,
-        "delivery_type": delivery_type,
+        "service_id":       service_id,
+        "service_name":     service["name"],
+        "service_price":    price,
+        "agreed_price":     price,          # set at request time for consistent payment lookup
+        "worker_username":  worker.get("username", ""),
+        "user_email":       current_user["email"],
+        "user_name":        current_user.get("username", ""),
+        "worker_email":     service["worker_email"],
+        "status":           "pending",
+        "created_at":       datetime.now(timezone.utc),
+        "safe_area_active":  False,
+        "safe_area_enabled": delivery_type == "online",  # online services support Safe Area
+        "delivery_type":     delivery_type,
     }
     result = requests_collection.insert_one(doc)
     doc["_id"] = result.inserted_id
