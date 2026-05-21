@@ -25,6 +25,7 @@ from app.db import refresh_tokens_collection, users_collection
 from app.schemas.common import LoginResponse, MessageResponse
 from app.schemas.user import UserOut
 from app.utils.images import save_upload_image
+from app.utils.rate_limit import rate_limit
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -95,6 +96,9 @@ async def register(
     image:      Optional[UploadFile] = File(None),
     request:    Request = None,
 ):
+    # 5 registrations per IP per hour
+    rate_limit(request, key="register", max_calls=5, window_seconds=3600)
+
     if userType not in ("Worker", "Normal"):
         raise HTTPException(status_code=400, detail="userType must be 'Worker' or 'Normal'")
 
@@ -122,7 +126,9 @@ async def register(
 
 
 @router.post("/login", response_model=LoginResponse, summary="تسجيل دخول")
-async def login(data: LoginRequest):
+async def login(data: LoginRequest, request: Request):
+    # 10 attempts per IP per 5 minutes
+    rate_limit(request, key="login", max_calls=10, window_seconds=300)
     user = _verify_user(str(data.email), data.password)
     return _build_response(user, str(data.email))
 
@@ -132,17 +138,19 @@ async def login(data: LoginRequest):
     response_model=LoginResponse,
     summary="تسجيل دخول للـ Swagger UI (OAuth2 form)",
 )
-async def login_swagger(form: OAuth2PasswordRequestForm = Depends()):
+async def login_swagger(request: Request, form: OAuth2PasswordRequestForm = Depends()):
+    rate_limit(request, key="login", max_calls=10, window_seconds=300)
     user = _verify_user(form.username, form.password)
     return _build_response(user, form.username)
 
 
 @router.post("/refresh", response_model=LoginResponse, summary="تجديد access token")
-async def refresh_token(refresh_token_str: str = Form(..., alias="refresh_token")):
+async def refresh_token(request: Request, refresh_token_str: str = Form(..., alias="refresh_token")):
     """
     يُجدّد الـ access_token باستخدام refresh_token صالح.
     يُبطل الـ refresh token القديم ويُعطي زوجاً جديداً (rotation).
     """
+    rate_limit(request, key="refresh", max_calls=20, window_seconds=300)
     try:
         payload = decode_token(refresh_token_str, expected_type="refresh")
     except JWTError:

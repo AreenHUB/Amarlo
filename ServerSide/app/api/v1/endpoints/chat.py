@@ -247,6 +247,8 @@ async def get_messages(
     if current_user["email"] not in (sender_email, recipient_email):
         raise HTTPException(status_code=403, detail="Not authorized")
 
+    safe_limit = min(max(limit, 1), 200)
+
     docs = list(
         messages_collection.find({
             "$or": [
@@ -255,7 +257,7 @@ async def get_messages(
             ]
         })
         .sort("timestamp", 1)
-        .limit(limit)
+        .limit(safe_limit)
     )
     # إزالة ObjectId من الـ _id إذا كان غير string
     for d in docs:

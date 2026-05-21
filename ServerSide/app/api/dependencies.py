@@ -3,14 +3,17 @@ app/api/dependencies.py
 ───────────────────────
 Shared API dependencies - auth, pagination, etc.
 """
+import logging
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 
 from app.core.security import decode_token
 from app.db import users_collection
+
+logger = logging.getLogger(__name__)
 
 # ─── OAuth2 scheme (for /docs Authorize button) ─────
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
@@ -72,10 +75,19 @@ async def get_current_user_ws(token: str) -> dict:
 
 async def get_current_user_flexible(
     header_token: Optional[str] = Depends(oauth2_scheme),
-    token: Optional[str] = None,
+    token: Optional[str] = Query(None, include_in_schema=False),
 ) -> dict:
     """Auth that accepts token from Authorization header OR ?token= query param.
-    Used for endpoints loaded directly in image widgets (preview, download)."""
+    The query-param form is intentional for endpoints loaded as image URLs
+    (Flutter CachedNetworkImage cannot set Authorization headers).
+    Tokens passed via URL are short-lived access tokens only — refresh tokens
+    must always use the Authorization header.
+    """
+    if token and not header_token:
+        # Token arrived via query param — log for audit trail but allow it.
+        # This is the only intended use case (image widget direct URL loading).
+        logger.debug("Token supplied via query param (image widget load)")
+
     resolved = header_token or token
     if not resolved:
         raise HTTPException(

@@ -512,10 +512,15 @@ async def send_payment(
 
     # تحقق مطابقة المبلغ — agreed_price (من offer) أو service_price
     expected_price = int(req.get("agreed_price") or req.get("service_price") or 0)
-    if expected_price > 0 and payment.amount != expected_price:
+    if expected_price <= 0:
         raise HTTPException(
             status_code=400,
-            detail=f"Payment amount must match the service price (${expected_price})"
+            detail="Service price is not set. Contact the worker to agree on a price first."
+        )
+    if payment.amount != expected_price:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Payment amount must match the agreed service price (${expected_price})"
         )
 
     # Atomic upsert — only inserts if no payment exists for this request.
