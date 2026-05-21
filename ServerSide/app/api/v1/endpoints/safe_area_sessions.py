@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.api.dependencies import get_current_user
-from app.db import safe_area_sessions_collection, users_collection
+from app.db import requests_collection, safe_area_sessions_collection, users_collection
 from app.schemas.common import MessageResponse
 
 router = APIRouter(prefix="/safe-area-sessions", tags=["Safe Area Sessions"])
@@ -93,10 +93,16 @@ async def create_session(
 
     try:
         deadline_dt = datetime.fromisoformat(body.deadline)
+        if deadline_dt.tzinfo is None:
+            deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid deadline (ISO 8601 required)")
 
     now = datetime.now(timezone.utc)
+    if deadline_dt <= now:
+        raise HTTPException(status_code=400, detail="Deadline must be in the future")
+    if deadline_dt > now + timedelta(days=365):
+        raise HTTPException(status_code=400, detail="Deadline cannot be more than 1 year away")
     doc = {
         "contract_ref":       _generate_contract_ref(),
         "initiator_email":    current_user["email"],
@@ -189,12 +195,48 @@ async def accept_session(
         {"$set": {"status": "active", "accepted_at": now}},
     )
 
-    # إشعار الـ Worker
+    # إنشاء service_request حتى تعمل Safe Area upload/confirm endpoints
+    existing_req = requests_collection.find_one({
+        "session_id":   session_id,
+        "status":       {"$nin": ["completed", "rejected"]},
+    })
+    request_id = None
+    if not existing_req:
+        req_doc = {
+            "session_id":        session_id,
+            "contract_ref":      doc["contract_ref"],
+            "service_id":        session_id,          # الـ session هي المرجع
+            "service_name":      doc["title"],
+            "user_email":        doc["participant_email"],
+            "user_name":         doc.get("participant_username", ""),
+            "worker_email":      doc["initiator_email"],
+            "worker_username":   doc.get("initiator_username", ""),
+            "agreed_price":      doc.get("price", 0),
+            "service_price":     doc.get("price", 0),
+            "delivery_type":     doc.get("delivery_type", "online"),
+            "safe_area_enabled": True,
+            "safe_area_active":  True,
+            "status":            "accepted",
+            "deadline":          doc.get("deadline"),
+            "created_at":        now,
+        }
+        result = requests_collection.insert_one(req_doc)
+        request_id = str(result.inserted_id)
+        # حفظ request_id في الـ session للرجوع إليه لاحقاً
+        safe_area_sessions_collection.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"request_id": request_id}},
+        )
+    else:
+        request_id = str(existing_req["_id"])
+
+    # إشعار الـ Worker مع request_id حتى يفتح Safe Area مباشرة
     try:
         from app.api.v1.endpoints.chat import push_notification
         await push_notification(doc["initiator_email"], {
             "type":         "safe_area_session_accepted",
             "session_id":   session_id,
+            "request_id":   request_id,
             "contract_ref": doc["contract_ref"],
             "user_name":    current_user.get("username", ""),
             "title":        doc["title"],
@@ -202,7 +244,7 @@ async def accept_session(
     except Exception as e:
         logger.warning("Failed to notify worker %s of session accept: %s", doc["initiator_email"], e)
 
-    return {"message": "Session accepted. Safe Area contract is now active."}
+    return {"message": "Session accepted. Safe Area contract is now active.", "request_id": request_id}
 
 
 @router.put("/{session_id}/reject", response_model=MessageResponse, summary="User يرفض الدعوة")

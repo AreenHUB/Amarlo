@@ -11,7 +11,7 @@ DELETE /requests/{id}                   — رفض / إلغاء
 """
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional, Set, Dict
 
@@ -203,11 +203,16 @@ async def accept_request(
 
     try:
         deadline_dt = datetime.fromisoformat(deadline)
+        if deadline_dt.tzinfo is None:
+            deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid deadline (ISO 8601 required)")
 
-    if deadline_dt.replace(tzinfo=None) <= datetime.utcnow():
+    now_utc = datetime.now(timezone.utc)
+    if deadline_dt <= now_utc:
         raise HTTPException(status_code=400, detail="Deadline must be in the future")
+    if deadline_dt > now_utc + timedelta(days=365):
+        raise HTTPException(status_code=400, detail="Deadline cannot be more than 1 year away")
 
     requests_collection.update_one(
         {"_id": req["_id"]},
@@ -255,6 +260,8 @@ async def propose_deadline(
 ):
     """Worker يقترح deadline — يُرسل للـ User للموافقة."""
     req = _req_or_404(request_id)
+    if req.get("delivery_type") == "in_person":
+        raise HTTPException(status_code=400, detail="In-person requests do not use deadline negotiation")
     if req["worker_email"] != current_user["email"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     if req["status"] != RequestStatus.PENDING:
@@ -264,11 +271,16 @@ async def propose_deadline(
 
     try:
         deadline_dt = datetime.fromisoformat(deadline)
+        if deadline_dt.tzinfo is None:
+            deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid deadline (ISO 8601 required)")
 
-    if deadline_dt.replace(tzinfo=None) <= datetime.utcnow():
+    now_utc = datetime.now(timezone.utc)
+    if deadline_dt <= now_utc:
         raise HTTPException(status_code=400, detail="Deadline must be in the future")
+    if deadline_dt > now_utc + timedelta(days=365):
+        raise HTTPException(status_code=400, detail="Deadline cannot be more than 1 year away")
 
     requests_collection.update_one(
         {"_id": req["_id"]},
@@ -296,6 +308,8 @@ async def confirm_deadline(
 ):
     """User يوافق أو يرفض الـ deadline المقترح."""
     req = _req_or_404(request_id)
+    if req.get("delivery_type") == "in_person":
+        raise HTTPException(status_code=400, detail="In-person requests do not use deadline negotiation")
     if req["user_email"] != current_user["email"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     if req.get("deadline_status") != "pending_user_approval":

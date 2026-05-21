@@ -95,6 +95,9 @@ async def register(
     image:      Optional[UploadFile] = File(None),
     request:    Request = None,
 ):
+    if userType not in ("Worker", "Normal"):
+        raise HTTPException(status_code=400, detail="userType must be 'Worker' or 'Normal'")
+
     if _get_user_by_email(email):
         raise HTTPException(status_code=409, detail="Email already registered")
 
