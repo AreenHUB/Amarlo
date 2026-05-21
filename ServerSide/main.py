@@ -48,9 +48,11 @@ app = FastAPI(
 - access_token  : 30 دقيقة
 - refresh_token : 30 يوم (auto-rotation عند كل refresh)
 """,
-    openapi_url="/openapi.json",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # Swagger UI and ReDoc are disabled in production to avoid exposing the API schema.
+    # Set ENVIRONMENT=development in .env to enable them locally.
+    openapi_url="/openapi.json" if not settings.is_production else None,
+    docs_url="/docs"            if not settings.is_production else None,
+    redoc_url="/redoc"          if not settings.is_production else None,
 )
 
 
@@ -86,8 +88,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Restrict to only the HTTP methods the app actually uses
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    # Restrict to only the headers the app sends
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 

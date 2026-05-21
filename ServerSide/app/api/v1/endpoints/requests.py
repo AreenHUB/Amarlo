@@ -10,9 +10,12 @@ PUT    /requests/{id}/ready
 DELETE /requests/{id}                   — رفض / إلغاء
 """
 import json
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Set, Dict
+
+logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -41,10 +44,10 @@ async def _notify(email: str, event: dict) -> None:
         for ws in list(conns):
             try:
                 await ws.send_text(payload)
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as e:
+                logger.warning("Failed to send notification to %s: %s", email, e)
+    except Exception as e:
+        logger.error("Notification dispatch error for %s: %s", email, e)
 
 
 class RequestStatus(str, Enum):
@@ -203,6 +206,9 @@ async def accept_request(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid deadline (ISO 8601 required)")
 
+    if deadline_dt.replace(tzinfo=None) <= datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Deadline must be in the future")
+
     requests_collection.update_one(
         {"_id": req["_id"]},
         {"$set": {
@@ -260,6 +266,9 @@ async def propose_deadline(
         deadline_dt = datetime.fromisoformat(deadline)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid deadline (ISO 8601 required)")
+
+    if deadline_dt.replace(tzinfo=None) <= datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Deadline must be in the future")
 
     requests_collection.update_one(
         {"_id": req["_id"]},

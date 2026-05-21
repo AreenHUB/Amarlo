@@ -13,8 +13,11 @@ app/api/v1/endpoints/chat.py
 """
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Set
+
+logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 from fastapi import (APIRouter, Depends, HTTPException,
@@ -41,7 +44,9 @@ async def push_notification(email: str, event: dict) -> None:
     for ws in list(active_notification_connections.get(email, set())):
         try:
             await ws.send_text(payload)
-        except Exception:
+        except Exception as e:
+            logger.warning("push_notification failed for %s (event=%s): %s",
+                           email, event.get("type", "?"), e)
             active_notification_connections.get(email, set()).discard(ws)
 
 

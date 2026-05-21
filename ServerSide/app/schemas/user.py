@@ -90,8 +90,8 @@ class WorkReviewOut(BaseModel):
 class ConductReportCreate(BaseModel):
     """بلاغ سلوكي — لا يرتبط بعمل مكتمل"""
     reported_email: str
-    reasons:        list[str]   # قائمة من CONDUCT_REASONS
-    details:        Optional[str] = None
+    reasons:        list[str]                          # قائمة من CONDUCT_REASONS
+    details:        Optional[str] = Field(None, max_length=1000)
 
 
 CONDUCT_REASONS = [

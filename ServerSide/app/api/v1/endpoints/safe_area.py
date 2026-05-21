@@ -15,10 +15,13 @@ GET  /balance/{email}        — رصيد العامل
 الخدمات In-Person تُكتفى بـ /requests/{id}/confirm-inperson
 """
 import io
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 from fastapi import (APIRouter, Depends, File, HTTPException,
@@ -506,16 +509,23 @@ async def send_payment(
             detail=f"Payment amount must match the service price (${expected_price})"
         )
 
-    if payments_collection.find_one({"request_id": request_id}):
+    # Atomic upsert — only inserts if no payment exists for this request.
+    # Prevents duplicate payments from rapid double-taps or network retries.
+    result = payments_collection.update_one(
+        {"request_id": request_id},
+        {"$setOnInsert": {
+            "request_id":   request_id,
+            "worker_email": req["worker_email"],
+            "user_email":   req["user_email"],
+            "amount":       payment.amount,
+            "timestamp":    datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    if result.upserted_id is None:
+        # Document already existed — payment was already sent
         raise HTTPException(status_code=400, detail="Payment already sent")
 
-    payments_collection.insert_one({
-        "request_id":   request_id,
-        "worker_email": req["worker_email"],
-        "user_email":   req["user_email"],
-        "amount":       payment.amount,
-        "timestamp":    datetime.now(timezone.utc),
-    })
     safe_area_collection.update_one(
         {"request_id": request_id},
         {"$set": {"payment_confirmed": True}},
@@ -764,12 +774,39 @@ async def get_balance(
     if current_user["email"] != worker_email:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    completed_ids = {
-        str(r["_id"])
-        for r in requests_collection.find(
-            {"worker_email": worker_email, "status": "completed"}
-        )
-    }
-    payments = list(payments_collection.find({"worker_email": worker_email}))
-    total = sum(p["amount"] for p in payments if p["request_id"] in completed_ids)
+    # Single aggregation pipeline — no Python-side filtering loop.
+    # Joins payments to completed requests in MongoDB and sums in one query.
+    pipeline = [
+        # 1. Only payments for this worker
+        {"$match": {"worker_email": worker_email}},
+        # 2. Join to service_requests on request_id == _id (string comparison)
+        {"$lookup": {
+            "from":          "service_requests",
+            "localField":    "request_id",
+            "foreignField":  "_id",           # ObjectId stored as string in seed data
+            "as":            "request_doc",
+        }},
+        # 3. Also try matching where _id is an ObjectId
+        {"$addFields": {
+            "request_doc": {
+                "$cond": {
+                    "if":   {"$eq": [{"$size": "$request_doc"}, 0]},
+                    "then": [],
+                    "else": "$request_doc",
+                }
+            }
+        }},
+        # 4. Keep only payments where the linked request is completed
+        {"$match": {
+            "request_doc.status": "completed",
+        }},
+        # 5. Sum all matching payments
+        {"$group": {
+            "_id":   None,
+            "total": {"$sum": "$amount"},
+        }},
+    ]
+
+    result = list(payments_collection.aggregate(pipeline))
+    total = result[0]["total"] if result else 0
     return {"balance": total, "currency": "USD"}
