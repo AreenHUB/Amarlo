@@ -775,36 +775,30 @@ async def get_balance(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     # Single aggregation pipeline — no Python-side filtering loop.
-    # Joins payments to completed requests in MongoDB and sums in one query.
+    # payments.request_id is a string; service_requests._id is an ObjectId.
+    # We convert _id to string with $toString so the $lookup type-matches correctly.
     pipeline = [
         # 1. Only payments for this worker
         {"$match": {"worker_email": worker_email}},
-        # 2. Join to service_requests on request_id == _id (string comparison)
+        # 2. Join to service_requests — convert ObjectId _id to string to match
         {"$lookup": {
-            "from":          "service_requests",
-            "localField":    "request_id",
-            "foreignField":  "_id",           # ObjectId stored as string in seed data
-            "as":            "request_doc",
+            "from": "service_requests",
+            "let":  {"rid": "$request_id"},
+            "pipeline": [
+                {"$addFields": {"_id_str": {"$toString": "$_id"}}},
+                {"$match": {"$expr": {
+                    "$and": [
+                        {"$eq": ["$_id_str", "$$rid"]},
+                        {"$eq": ["$status",  "completed"]},
+                    ]
+                }}},
+            ],
+            "as": "request_doc",
         }},
-        # 3. Also try matching where _id is an ObjectId
-        {"$addFields": {
-            "request_doc": {
-                "$cond": {
-                    "if":   {"$eq": [{"$size": "$request_doc"}, 0]},
-                    "then": [],
-                    "else": "$request_doc",
-                }
-            }
-        }},
-        # 4. Keep only payments where the linked request is completed
-        {"$match": {
-            "request_doc.status": "completed",
-        }},
-        # 5. Sum all matching payments
-        {"$group": {
-            "_id":   None,
-            "total": {"$sum": "$amount"},
-        }},
+        # 3. Only keep payments that matched a completed request
+        {"$match": {"request_doc": {"$ne": []}}},
+        # 4. Sum
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]
 
     result = list(payments_collection.aggregate(pipeline))
