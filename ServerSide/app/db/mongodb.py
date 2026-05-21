@@ -31,12 +31,12 @@ _client: MongoClient = MongoClient(
 _db = _client[settings.MONGO_DB_NAME]
 
 # ─── Collections ─────────────────────────────
-users_collection          = _db["users"]
-services_collection       = _db["services"]
-posts_collection          = _db["posts"]
-requests_collection       = _db["service_requests"]
-messages_collection       = _db["messages"]
-reviews_collection        = _db["reviews"]
+users_collection              = _db["users"]
+services_collection           = _db["services"]
+posts_collection              = _db["posts"]
+requests_collection           = _db["service_requests"]
+messages_collection           = _db["messages"]
+reviews_collection            = _db["reviews"]
 safe_area_collection          = _db["safe_area"]
 safe_area_sessions_collection = _db["safe_area_sessions"]
 conduct_reports_collection    = _db["conduct_reports"]
@@ -44,6 +44,7 @@ payments_collection           = _db["payments"]
 reports_collection            = _db["reports"]
 blocks_collection             = _db["user_blocks"]
 refresh_tokens_collection     = _db["refresh_tokens"]
+pending_notifications_collection = _db["pending_notifications"]
 
 
 # ─── Indexes for performance ─────────────────
@@ -160,6 +161,14 @@ def ensure_indexes() -> None:
             name="idx_recipient_unread",
         ),
     ], "messages_unread")
+
+    # pending_notifications: flush on reconnect, TTL auto-cleanup after 30 days
+    _try_index(pending_notifications_collection, [
+        IndexModel([("recipient_email", ASCENDING)], name="idx_recipient"),
+        IndexModel([("created_at", ASCENDING)],
+                   expireAfterSeconds=2592000,   # 30 days
+                   name="ttl_30d"),
+    ], "pending_notifications")
 
     logger.info("✅ MongoDB indexes ready")
 

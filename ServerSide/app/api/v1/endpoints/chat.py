@@ -24,7 +24,8 @@ from fastapi import (APIRouter, Depends, HTTPException,
                      Query, WebSocket, WebSocketDisconnect)
 
 from app.api.dependencies import get_current_user, get_current_user_ws
-from app.db import (blocks_collection, messages_collection, users_collection)
+from app.db import (blocks_collection, messages_collection,
+                    pending_notifications_collection, users_collection)
 from app.schemas.common import MessageResponse
 
 router = APIRouter(tags=["Chat"])
@@ -38,16 +39,62 @@ online_users: Dict[str, bool] = {}
 
 # ─── Notification helpers ─────────────────────────────────
 
+# Notification types that are ephemeral (chat messages handled separately)
+# and should NOT be persisted to the pending queue.
+_EPHEMERAL_TYPES = {"unread_count", "ping", "pong", "connected"}
+
+
 async def push_notification(email: str, event: dict) -> None:
-    """يُرسل حدث إشعار لكل connections المستخدم."""
+    """
+    يُرسل حدث إشعار لكل connections المستخدم.
+    إذا لم يكن المستخدم متصلاً، يُخزَّن الحدث في pending_notifications
+    ويُرسَل فور اتصاله.
+    """
+    connections = list(active_notification_connections.get(email, set()))
     payload = json.dumps(event, ensure_ascii=False)
-    for ws in list(active_notification_connections.get(email, set())):
+    delivered = False
+
+    for ws in connections:
         try:
             await ws.send_text(payload)
+            delivered = True
         except Exception as e:
             logger.warning("push_notification failed for %s (event=%s): %s",
                            email, event.get("type", "?"), e)
             active_notification_connections.get(email, set()).discard(ws)
+
+    # إذا لم يصل لأي connection — خزّنه للإرسال عند الاتصال التالي
+    event_type = event.get("type", "")
+    if not delivered and event_type not in _EPHEMERAL_TYPES:
+        try:
+            pending_notifications_collection.insert_one({
+                "recipient_email": email,
+                "event":           event,
+                "created_at":      datetime.now(timezone.utc),
+            })
+        except Exception as e:
+            logger.warning("Failed to persist notification for %s: %s", email, e)
+
+
+async def _flush_pending_notifications(email: str, ws: WebSocket) -> None:
+    """يُرسل الإشعارات المخزّنة للمستخدم فور اتصاله ويحذفها."""
+    pending = list(pending_notifications_collection.find(
+        {"recipient_email": email}
+    ).sort("created_at", 1))
+
+    if not pending:
+        return
+
+    ids_to_delete = []
+    for doc in pending:
+        try:
+            await ws.send_text(json.dumps(doc["event"], ensure_ascii=False))
+            ids_to_delete.append(doc["_id"])
+        except Exception:
+            break  # connection dropped — stop flushing, leave remaining in DB
+
+    if ids_to_delete:
+        pending_notifications_collection.delete_many({"_id": {"$in": ids_to_delete}})
 
 
 async def _push_unread_count(email: str) -> None:
@@ -205,6 +252,9 @@ async def notifications_ws(
 
     # أرسل unread count فور الاتصال
     await _push_unread_count(user_email)
+
+    # إرسال الإشعارات المخزّنة أثناء غياب المستخدم
+    await _flush_pending_notifications(user_email, websocket)
 
     try:
         while True:

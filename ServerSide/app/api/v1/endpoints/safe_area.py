@@ -642,6 +642,22 @@ async def confirm_deal(
         except Exception as e:
             logger.warning("Failed to send deal_complete notifications: %s", e)
 
+        # إذا كان الطلب مرتبطاً بجلسة — أكمل الجلسة تلقائياً
+        session_id = req.get("session_id")
+        if session_id:
+            try:
+                from app.api.v1.endpoints.safe_area_sessions import complete_session as _complete_session
+                from app.db import safe_area_sessions_collection
+                safe_area_sessions_collection.update_one(
+                    {"_id": ObjectId(session_id)} if len(session_id) == 24 else {"_id": session_id},
+                    {"$set": {
+                        "status":       "completed",
+                        "completed_at": datetime.now(timezone.utc),
+                    }},
+                )
+            except Exception as e:
+                logger.warning("Failed to auto-complete session %s: %s", session_id, e)
+
         return {"message": "Deal completed! File is now available for download."}
 
     # أحد الطرفين أكّد — أخطر الطرف الآخر
@@ -731,6 +747,21 @@ async def confirm_inperson(
                 await push_notification(email, event)
         except Exception as e:
             logger.warning("Failed to send inperson deal_complete notifications: %s", e)
+
+        # إذا كان الطلب مرتبطاً بجلسة — أكمل الجلسة تلقائياً
+        session_id = req.get("session_id")
+        if session_id:
+            try:
+                from app.db import safe_area_sessions_collection
+                safe_area_sessions_collection.update_one(
+                    {"_id": ObjectId(session_id)} if len(session_id) == 24 else {"_id": session_id},
+                    {"$set": {
+                        "status":       "completed",
+                        "completed_at": datetime.now(timezone.utc),
+                    }},
+                )
+            except Exception as e:
+                logger.warning("Failed to auto-complete session %s: %s", session_id, e)
 
         return {"message": "Work confirmed by both parties. Deal completed!"}
 

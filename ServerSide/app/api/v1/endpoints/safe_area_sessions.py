@@ -3,11 +3,12 @@ app/api/v1/endpoints/safe_area_sessions.py
 ───────────────────────────────────────────
 Safe Area Session — عقد رقمي بين Worker وUser
 
-POST /safe-area-sessions              — Worker ينشئ جلسة ويدعو User
-GET  /safe-area-sessions/{id}         — تفاصيل الجلسة
-PUT  /safe-area-sessions/{id}/accept  — User يقبل (خلال 6 ساعات)
-PUT  /safe-area-sessions/{id}/reject  — User يرفض
-GET  /safe-area-sessions/my           — كل جلساتي
+POST /safe-area-sessions                  — Worker ينشئ جلسة ويدعو User
+GET  /safe-area-sessions/my               — كل جلساتي
+GET  /safe-area-sessions/{id}             — تفاصيل جلسة
+PUT  /safe-area-sessions/{id}/accept      — User يقبل (خلال 6 ساعات)
+PUT  /safe-area-sessions/{id}/reject      — User يرفض
+PUT  /safe-area-sessions/{id}/complete    — تأكيد إتمام الجلسة (يُستدعى تلقائياً)
 
 Contract ref format: SA-YYYY-XXXXX
 """
@@ -277,3 +278,53 @@ async def reject_session(
         logger.warning("Failed to notify worker %s of session reject: %s", doc["initiator_email"], e)
 
     return {"message": "Session rejected"}
+
+
+@router.put("/{session_id}/complete", response_model=MessageResponse, summary="إتمام الجلسة")
+async def complete_session(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    يُغلق الجلسة بعد تأكيد الطرفين في Safe Area.
+    يُستدعى تلقائياً من confirm_deal عند اكتمال الصفقة.
+    يُقبل أيضاً يدوياً من أي طرف في الجلسة.
+    """
+    doc = _session_or_404(session_id)
+
+    if current_user["email"] not in (doc["initiator_email"], doc["participant_email"]):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if doc["status"] == "completed":
+        return {"message": "Session is already completed"}
+
+    if doc["status"] not in ("active",):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot complete a session with status '{doc['status']}'"
+        )
+
+    safe_area_sessions_collection.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {
+            "status":       "completed",
+            "completed_at": datetime.now(timezone.utc),
+        }},
+    )
+
+    # إشعار كلا الطرفين
+    try:
+        from app.api.v1.endpoints.chat import push_notification
+        event = {
+            "type":         "deal_complete",
+            "session_id":   session_id,
+            "contract_ref": doc["contract_ref"],
+            "service_name": doc["title"],
+            "request_id":   doc.get("request_id", ""),
+        }
+        for email in (doc["initiator_email"], doc["participant_email"]):
+            await push_notification(email, event)
+    except Exception as e:
+        logger.warning("Failed to send session complete notifications: %s", e)
+
+    return {"message": "Session completed successfully"}
