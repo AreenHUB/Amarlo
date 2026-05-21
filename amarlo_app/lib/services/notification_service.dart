@@ -198,6 +198,43 @@ class NotificationManager extends ChangeNotifier {
 
   void setNavContext(BuildContext ctx) {} // no-op — navigation via callbacks now
 
+  // ─── Alert feedback ─────────────────────────────────
+  // Notification types that warrant a stronger alert (vibration + sound)
+  static const _highPriorityTypes = {
+    'new_request',
+    'new_offer',
+    'request_accepted',
+    'request_rejected',
+    'request_ready',
+    'deal_complete',
+    'deadline_proposed',
+    'deadline_confirmed',
+    'deadline_rejected',
+    'payment_received',
+    'work_uploaded',
+    'safe_area_opened',
+    'safe_area_session_invite',
+    'worker_confirmed_waiting',
+    'user_confirmed_waiting',
+  };
+
+  void _playAlert(AppNotification notification) {
+    try {
+      if (_highPriorityTypes.contains(notification.type)) {
+        // Strong feedback: double vibration pulse + system alert sound
+        HapticFeedback.heavyImpact();
+        SystemSound.play(SystemSoundType.alert);
+        Future.delayed(const Duration(milliseconds: 120), () {
+          HapticFeedback.mediumImpact();
+        });
+      } else {
+        // Soft feedback: single light vibration for chat messages etc.
+        HapticFeedback.lightImpact();
+        SystemSound.play(SystemSoundType.alert);
+      }
+    } catch (_) {}
+  }
+
   // ─── Add ────────────────────────────────────────────
   void add(AppNotification notification, {bool showToast = true}) {
     if (!notification.isEphemeral) {
@@ -213,9 +250,7 @@ class NotificationManager extends ChangeNotifier {
       _showToast(notification);
     }
 
-    try {
-      SystemSound.play(SystemSoundType.alert);
-    } catch (_) {}
+    _playAlert(notification);
   }
 
   // ─── Delete ──────────────────────────────────────────
