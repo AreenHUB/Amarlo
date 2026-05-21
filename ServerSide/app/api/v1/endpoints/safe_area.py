@@ -246,14 +246,16 @@ async def upload_work(
         })
 
     # إشعار الـ User أن العامل رفع العمل
-    from app.api.v1.endpoints.chat import push_notification
-    import asyncio
-    asyncio.create_task(push_notification(req["user_email"], {
-        "type":             "work_uploaded",
-        "service_name":     req.get("service_name", ""),
-        "worker_username":  current_user.get("username", ""),
-        "request_id":       request_id,
-    }))
+    try:
+        from app.api.v1.endpoints.chat import push_notification
+        await push_notification(req["user_email"], {
+            "type":             "work_uploaded",
+            "service_name":     req.get("service_name", ""),
+            "worker_username":  current_user.get("username", ""),
+            "request_id":       request_id,
+        })
+    except Exception as e:
+        logger.warning("Failed to notify user %s of work upload: %s", req["user_email"], e)
 
     return {"message": "Work uploaded successfully"}
 
@@ -360,16 +362,18 @@ async def propose_price(
         )
 
     # إشعار الـ User
-    from app.api.v1.endpoints.chat import push_notification
-    import asyncio
-    asyncio.create_task(push_notification(req["user_email"], {
-        "type":            "price_change_proposed",
-        "service_name":    req.get("service_name", ""),
-        "worker_username": current_user.get("username", ""),
-        "old_price":       int(req.get("agreed_price") or req.get("service_price") or 0),
-        "new_price":       body.new_price,
-        "request_id":      request_id,
-    }))
+    try:
+        from app.api.v1.endpoints.chat import push_notification
+        await push_notification(req["user_email"], {
+            "type":            "price_change_proposed",
+            "service_name":    req.get("service_name", ""),
+            "worker_username": current_user.get("username", ""),
+            "old_price":       int(req.get("agreed_price") or req.get("service_price") or 0),
+            "new_price":       body.new_price,
+            "request_id":      request_id,
+        })
+    except Exception as e:
+        logger.warning("Failed to notify user %s of price proposal: %s", req["user_email"], e)
     return {"message": "Price proposal sent to client"}
 
 
@@ -393,7 +397,6 @@ async def confirm_price(
         raise HTTPException(status_code=400, detail="Payment already sent")
 
     from app.api.v1.endpoints.chat import push_notification
-    import asyncio
 
     if accept:
         new_price = req.get("proposed_price", 0)
@@ -417,12 +420,15 @@ async def confirm_price(
                     "proposed_price": None,
                 }},
             )
-        asyncio.create_task(push_notification(req["worker_email"], {
-            "type":         "price_change_accepted",
-            "service_name": req.get("service_name", ""),
-            "new_price":    new_price,
-            "request_id":   request_id,
-        }))
+        try:
+            await push_notification(req["worker_email"], {
+                "type":         "price_change_accepted",
+                "service_name": req.get("service_name", ""),
+                "new_price":    new_price,
+                "request_id":   request_id,
+            })
+        except Exception as e:
+            logger.warning("Failed to notify worker %s of price accepted: %s", req["worker_email"], e)
         return {"message": f"Price updated to ${new_price}"}
     else:
         try:
@@ -435,11 +441,14 @@ async def confirm_price(
                 {"_id": request_id},
                 {"$set": {"price_status": "rejected", "proposed_price": None}},
             )
-        asyncio.create_task(push_notification(req["worker_email"], {
-            "type":         "price_change_rejected",
-            "service_name": req.get("service_name", ""),
-            "request_id":   request_id,
-        }))
+        try:
+            await push_notification(req["worker_email"], {
+                "type":         "price_change_rejected",
+                "service_name": req.get("service_name", ""),
+                "request_id":   request_id,
+            })
+        except Exception as e:
+            logger.warning("Failed to notify worker %s of price rejected: %s", req["worker_email"], e)
         return {"message": "Price proposal rejected. Original price remains."}
 
 
@@ -532,15 +541,17 @@ async def send_payment(
     )
 
     # إشعار الـ Worker أن الـ User أرسل الدفع
-    from app.api.v1.endpoints.chat import push_notification
-    import asyncio
-    asyncio.create_task(push_notification(req["worker_email"], {
-        "type":           "payment_received",
-        "service_name":   req.get("service_name", ""),
-        "user_username":  current_user.get("username", ""),
-        "amount":         payment.amount,
-        "request_id":     request_id,
-    }))
+    try:
+        from app.api.v1.endpoints.chat import push_notification
+        await push_notification(req["worker_email"], {
+            "type":           "payment_received",
+            "service_name":   req.get("service_name", ""),
+            "user_username":  current_user.get("username", ""),
+            "amount":         payment.amount,
+            "request_id":     request_id,
+        })
+    except Exception as e:
+        logger.warning("Failed to notify worker %s of payment: %s", req["worker_email"], e)
 
     return {"message": "Payment sent and held in escrow. Confirm the work to release it."}
 
@@ -601,7 +612,6 @@ async def confirm_deal(
     entry = safe_area_collection.find_one({"request_id": request_id})
 
     from app.api.v1.endpoints.chat import push_notification
-    import asyncio
 
     if entry.get("worker_confirmed") and entry.get("user_confirmed"):
         # أكمل الطلب
@@ -621,28 +631,32 @@ async def confirm_deal(
             "service_name": req.get("service_name", ""),
             "request_id":   request_id,
         }
-        for email in [req["user_email"], req["worker_email"]]:
-            asyncio.create_task(push_notification(email, event))
+        try:
+            for email in [req["user_email"], req["worker_email"]]:
+                await push_notification(email, event)
+        except Exception as e:
+            logger.warning("Failed to send deal_complete notifications: %s", e)
 
         return {"message": "Deal completed! File is now available for download."}
 
     # أحد الطرفين أكّد — أخطر الطرف الآخر
-    if current_user["email"] == req["worker_email"]:
-        # الوركر أكّد → أخطر اليوزر
-        asyncio.create_task(push_notification(req["user_email"], {
-            "type":             "worker_confirmed_waiting",
-            "service_name":     req.get("service_name", ""),
-            "worker_username":  current_user.get("username", ""),
-            "request_id":       request_id,
-        }))
-    else:
-        # اليوزر أكّد → أخطر الوركر
-        asyncio.create_task(push_notification(req["worker_email"], {
-            "type":            "user_confirmed_waiting",
-            "service_name":    req.get("service_name", ""),
-            "user_username":   current_user.get("username", ""),
-            "request_id":      request_id,
-        }))
+    try:
+        if current_user["email"] == req["worker_email"]:
+            await push_notification(req["user_email"], {
+                "type":             "worker_confirmed_waiting",
+                "service_name":     req.get("service_name", ""),
+                "worker_username":  current_user.get("username", ""),
+                "request_id":       request_id,
+            })
+        else:
+            await push_notification(req["worker_email"], {
+                "type":            "user_confirmed_waiting",
+                "service_name":    req.get("service_name", ""),
+                "user_username":   current_user.get("username", ""),
+                "request_id":      request_id,
+            })
+    except Exception as e:
+        logger.warning("Failed to send confirmation waiting notification: %s", e)
 
     return {"message": "Your confirmation recorded. Waiting for the other party."}
 
@@ -689,7 +703,6 @@ async def confirm_inperson(
     entry = safe_area_collection.find_one({"request_id": request_id})
 
     from app.api.v1.endpoints.chat import push_notification
-    import asyncio
 
     if entry.get("worker_confirmed") and entry.get("user_confirmed"):
         try:
@@ -708,26 +721,32 @@ async def confirm_inperson(
             "service_name": req.get("service_name", ""),
             "request_id":   request_id,
         }
-        for email in [req["user_email"], req["worker_email"]]:
-            asyncio.create_task(push_notification(email, event))
+        try:
+            for email in [req["user_email"], req["worker_email"]]:
+                await push_notification(email, event)
+        except Exception as e:
+            logger.warning("Failed to send inperson deal_complete notifications: %s", e)
 
         return {"message": "Work confirmed by both parties. Deal completed!"}
 
     # أحد الطرفين أكّد — أخطر الطرف الآخر
-    if current_user["email"] == req["worker_email"]:
-        asyncio.create_task(push_notification(req["user_email"], {
-            "type":             "worker_confirmed_waiting",
-            "service_name":     req.get("service_name", ""),
-            "worker_username":  current_user.get("username", ""),
-            "request_id":       request_id,
-        }))
-    else:
-        asyncio.create_task(push_notification(req["worker_email"], {
-            "type":            "user_confirmed_waiting",
-            "service_name":    req.get("service_name", ""),
-            "user_username":   current_user.get("username", ""),
-            "request_id":      request_id,
-        }))
+    try:
+        if current_user["email"] == req["worker_email"]:
+            await push_notification(req["user_email"], {
+                "type":             "worker_confirmed_waiting",
+                "service_name":     req.get("service_name", ""),
+                "worker_username":  current_user.get("username", ""),
+                "request_id":       request_id,
+            })
+        else:
+            await push_notification(req["worker_email"], {
+                "type":            "user_confirmed_waiting",
+                "service_name":    req.get("service_name", ""),
+                "user_username":   current_user.get("username", ""),
+                "request_id":      request_id,
+            })
+    except Exception as e:
+        logger.warning("Failed to send inperson confirmation waiting notification: %s", e)
 
     return {"message": "Your confirmation recorded. Waiting for the other party."}
 

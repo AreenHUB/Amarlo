@@ -11,6 +11,7 @@ PUT    /posts/{id}/offers/{oid}/accept
 PUT    /posts/{id}/offers/{oid}/reject
 DELETE /posts/{id}/offers/{oid}
 """
+import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,8 @@ from bson import ObjectId
 from app.api.dependencies import get_current_user
 from app.db import posts_collection, requests_collection, users_collection
 from app.schemas.common import MessageResponse, PagedResponse, PaginationParams
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Posts & Offers"])
 
@@ -261,15 +264,16 @@ async def create_offer(
     # إشعار صاحب المنشور
     try:
         from app.api.v1.endpoints.chat import push_notification
-        import asyncio
-        asyncio.create_task(push_notification(doc["creator_email"], {
+        await push_notification(doc["creator_email"], {
             "type":            "new_offer",
             "worker_username": current_user.get("username", ""),
+            "worker_email":    current_user["email"],
             "price":           body.price,
             "post_title":      doc.get("title", ""),
-        }))
-    except Exception:
-        pass
+            "post_id":         post_id,
+        })
+    except Exception as e:
+        logger.warning("Failed to notify user %s of new offer: %s", doc["creator_email"], e)
 
     return {"message": "Offer submitted", "offer_id": offer_id}
 
@@ -345,41 +349,40 @@ async def accept_offer(
 
         try:
             from app.api.v1.endpoints.chat import push_notification
-            import asyncio
             if safe_area_enabled:
                 # Worker: حدد deadline — لديك 6 ساعات
-                asyncio.create_task(push_notification(worker_email, {
+                await push_notification(worker_email, {
                     "type":         "offer_accepted_set_deadline",
                     "service_name": doc.get("title", ""),
                     "user_name":    current_user.get("username", ""),
                     "request_id":   request_id,
                     "agreed_price": agreed_price,
-                }))
+                })
                 # User: تم قبول عرضك — انتظر تحديد موعد التسليم
-                asyncio.create_task(push_notification(current_user["email"], {
+                await push_notification(current_user["email"], {
                     "type":            "offer_you_accepted_confirmed",
                     "service_name":    doc.get("title", ""),
                     "worker_username": offer.get("worker_username", ""),
                     "agreed_price":    agreed_price,
                     "request_id":      request_id,
-                }))
+                })
             else:
                 # in-person
-                asyncio.create_task(push_notification(worker_email, {
+                await push_notification(worker_email, {
                     "type":         "offer_accepted_inperson",
                     "service_name": doc.get("title", ""),
                     "user_name":    current_user.get("username", ""),
                     "request_id":   request_id,
-                }))
-                asyncio.create_task(push_notification(current_user["email"], {
+                })
+                await push_notification(current_user["email"], {
                     "type":            "offer_you_accepted_confirmed",
                     "service_name":    doc.get("title", ""),
                     "worker_username": offer.get("worker_username", ""),
                     "agreed_price":    agreed_price,
                     "request_id":      request_id,
-                }))
-        except Exception:
-            pass
+                })
+        except Exception as e:
+            logger.warning("Failed to send offer-accepted notifications (req=%s): %s", request_id, e)
 
     msg = (
         "Offer accepted! Worker will set a deadline for Safe Area delivery."

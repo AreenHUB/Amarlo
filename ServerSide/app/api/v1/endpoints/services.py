@@ -9,6 +9,7 @@ GET  /worker-services    — خدمات العامل الحالي
 GET  /categories         — قائمة التصنيفات
 POST /services/{id}/request  — إرسال طلب على خدمة (الإصلاح الرئيسي)
 """
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -23,6 +24,8 @@ from app.db import requests_collection, services_collection, users_collection
 from app.schemas.common import MessageResponse, PagedResponse, PaginationParams
 from app.schemas.service import ServiceOut
 from app.utils.images import delete_image_file, save_upload_image
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Services"])
 
@@ -273,15 +276,15 @@ async def request_service(
     # إشعار العامل
     try:
         from app.api.v1.endpoints.chat import push_notification
-        import asyncio
-        asyncio.create_task(push_notification(service["worker_email"], {
+        await push_notification(service["worker_email"], {
             "type":         "new_request",
             "service_name": service["name"],
             "user_name":    current_user.get("username", ""),
+            "user_email":   current_user["email"],
             "request_id":   str(result.inserted_id),
-        }))
-    except Exception:
-        pass
+        })
+    except Exception as e:
+        logger.warning("Failed to notify worker %s of new request: %s", service["worker_email"], e)
 
     return {
         "message":    "Request sent successfully",

@@ -11,10 +11,13 @@ GET  /safe-area-sessions/my           — كل جلساتي
 
 Contract ref format: SA-YYYY-XXXXX
 """
+import logging
 import random
 import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
@@ -121,8 +124,7 @@ async def create_session(
     # إشعار الـ participant
     try:
         from app.api.v1.endpoints.chat import push_notification
-        import asyncio
-        asyncio.create_task(push_notification(body.participant_email, {
+        await push_notification(body.participant_email, {
             "type":           "safe_area_session_invite",
             "session_id":     str(result.inserted_id),
             "contract_ref":   doc["contract_ref"],
@@ -130,9 +132,9 @@ async def create_session(
             "title":          body.title,
             "price":          body.price,
             "expires_in_hrs": SESSION_INVITATION_HOURS,
-        }))
-    except Exception:
-        pass
+        })
+    except Exception as e:
+        logger.warning("Failed to notify %s of session invite: %s", body.participant_email, e)
 
     return _serialize(doc)
 
@@ -190,16 +192,15 @@ async def accept_session(
     # إشعار الـ Worker
     try:
         from app.api.v1.endpoints.chat import push_notification
-        import asyncio
-        asyncio.create_task(push_notification(doc["initiator_email"], {
+        await push_notification(doc["initiator_email"], {
             "type":         "safe_area_session_accepted",
             "session_id":   session_id,
             "contract_ref": doc["contract_ref"],
             "user_name":    current_user.get("username", ""),
             "title":        doc["title"],
-        }))
-    except Exception:
-        pass
+        })
+    except Exception as e:
+        logger.warning("Failed to notify worker %s of session accept: %s", doc["initiator_email"], e)
 
     return {"message": "Session accepted. Safe Area contract is now active."}
 
@@ -224,14 +225,13 @@ async def reject_session(
     # إشعار الـ Worker
     try:
         from app.api.v1.endpoints.chat import push_notification
-        import asyncio
-        asyncio.create_task(push_notification(doc["initiator_email"], {
+        await push_notification(doc["initiator_email"], {
             "type":         "safe_area_session_rejected",
             "session_id":   session_id,
             "contract_ref": doc["contract_ref"],
             "user_name":    current_user.get("username", ""),
-        }))
-    except Exception:
-        pass
+        })
+    except Exception as e:
+        logger.warning("Failed to notify worker %s of session reject: %s", doc["initiator_email"], e)
 
     return {"message": "Session rejected"}
