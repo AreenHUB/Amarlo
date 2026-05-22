@@ -31,6 +31,7 @@ class NavigationBarPage extends StatefulWidget {
 
 class _NavigationBarPageState extends State<NavigationBarPage> {
   int _index = 0;
+  bool _wasLoggedIn = false;
   NotificationWebSocket? _notifWs;
   String? _connectedEmail; // لمنع إعادة اتصال مكررة
 
@@ -257,6 +258,15 @@ class _NavigationBarPageState extends State<NavigationBarPage> {
 
     // يُعيد الاتصال إذا تغيّر المستخدم (بعد login/logout)
     WidgetsBinding.instance.addPostFrameCallback((_) => _tryConnect());
+
+    // Reset to Home tab on the transition from logged-out → logged-in.
+    // This handles login from the Login tab (IndexedStack) and from a
+    // pushed LoginPage (after register). Without this, _index stays on
+    // the old Register/Login tab number which no longer exists.
+    if (auth.isLoggedIn && !_wasLoggedIn) {
+      _index = 0;
+    }
+    _wasLoggedIn = auth.isLoggedIn;
 
     final pages = _buildPages(auth);
     final idx = _index.clamp(0, pages.length - 1);
