@@ -108,21 +108,44 @@ class _UserRequestsScreenState extends State<UserRequestsScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       itemCount: _categories.length,
                       itemBuilder: (_, i) {
-                        final cat = _categories[i];
-                        final label = cat ?? 'All';
+                        final cat      = _categories[i];
+                        final label    = cat ?? 'All';
                         final selected = _selectedCategory == cat;
                         return Padding(
                           padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            label: Text(label),
-                            selected: selected,
-                            onSelected: (_) {
+                          child: GestureDetector(
+                            onTap: () {
                               setState(() => _selectedCategory = cat);
                               _applyFilter();
                             },
-                            backgroundColor: Colors.grey[100],
-                            selectedColor: Colors.brown[100],
-                            checkmarkColor: Colors.brown,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? Colors.brown[700]
+                                    : Colors.grey[200],
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: selected
+                                      ? Colors.brown[700]!
+                                      : Colors.grey[350]!,
+                                ),
+                              ),
+                              child: Text(
+                                label,
+                                style: TextStyle(
+                                  fontSize:   13,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: selected
+                                      ? Colors.white
+                                      : Colors.grey[800],
+                                ),
+                              ),
+                            ),
                           ),
                         );
                       },
