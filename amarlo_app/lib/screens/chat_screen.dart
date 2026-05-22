@@ -89,11 +89,15 @@ class _ChatScreenState extends State<ChatScreen> {
       _checkBlock(),
     ]);
 
-    // استمع لـ new_message من NotificationManager (يعمل حتى قبل اتصال ChatWebSocket)
+    // استمع لـ new_message من NotificationManager
+    // نُحوّله لـ ChatMessage ونُضيفه مباشرة — بدون reload كامل
     _notifListener = (data) {
       final senderEmail = data['sender_email'] as String? ?? '';
       if (senderEmail != widget.recipientEmail) return;
-      if (mounted) _loadHistory(auth.user!.email, silent: true);
+      try {
+        final msg = ChatMessage.fromJson(data);
+        _onIncomingMessage(msg);
+      } catch (_) {}
     };
     NotificationManager.instance.addMessageListener(_notifListener!);
 
@@ -130,14 +134,30 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_seenIds.contains(msg.id)) return;
     _seenIds.add(msg.id);
 
-    if (mounted) {
-      setState(() => _messages.add(msg));
-      _scrollToBottom(animated: true);
+    if (!mounted) return;
 
-      if (msg.senderEmail != _myEmail) {
-        HapticFeedback.lightImpact();
-        ApiService.markRead(msg.id).ignore();
+    setState(() {
+      if (msg.senderEmail == _myEmail) {
+        // رسالة أرسلناها نحن — ابحث عن أي tmp_ bubble وحلّ محله
+        // حتى تختفي الساعة وتظهر العلامة الصحيحة
+        final tmpIdx = _messages.indexWhere((m) => m.id.startsWith('tmp_'));
+        if (tmpIdx != -1) {
+          _seenIds.remove(_messages[tmpIdx].id);
+          _messages[tmpIdx] = msg;
+        } else {
+          _messages.add(msg);
+        }
+      } else {
+        // رسالة واردة من الطرف الآخر — أضفها مباشرة
+        _messages.add(msg);
       }
+    });
+
+    _scrollToBottom(animated: true);
+
+    if (msg.senderEmail != _myEmail) {
+      HapticFeedback.lightImpact();
+      ApiService.markRead(msg.id).ignore();
     }
   }
 
