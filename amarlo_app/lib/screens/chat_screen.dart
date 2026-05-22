@@ -34,8 +34,14 @@ class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl    = TextEditingController();
   final _scrollCtrl = ScrollController();
 
-  // De-dup set — prevents showing the same message twice
+  // Cached once in _init — never call context.read inside setState
+  late String _myEmail;
+
+  // De-dup: tracks message IDs already shown (including tmp_ and sent_ prefixed)
   final Set<String> _seenIds = {};
+  // Tracks IDs we've already called markRead for — prevents duplicate API calls
+  final Set<String> _markedReadIds = {};
+
   List<ChatMessage> _messages = [];
 
   ChatWebSocket? _ws;
@@ -43,18 +49,19 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isBlocked       = false;
   bool _loading         = true;
   bool _recipientOnline = false;
+  bool _showScrollDown  = false;   // new-message badge when scrolled up
+
   Timer? _presenceTimer;
   String? _error;
 
   void Function(Map<String, dynamic>)? _notifListener;
 
-  String get _myEmail =>
-      context.read<AuthProvider>().user?.email ?? '';
-
   @override
   void initState() {
     super.initState();
+    _myEmail = context.read<AuthProvider>().user?.email ?? '';
     NotificationManager.instance.setActiveChatEmail(widget.recipientEmail);
+    _scrollCtrl.addListener(_onScroll);
     _init();
   }
 
@@ -64,11 +71,23 @@ class _ChatScreenState extends State<ChatScreen> {
     _ws?.disconnect();
     _presenceTimer?.cancel();
     _msgCtrl.dispose();
-    _scrollCtrl.dispose();
+    _scrollCtrl
+      ..removeListener(_onScroll)
+      ..dispose();
     if (_notifListener != null) {
       NotificationManager.instance.removeMessageListener(_notifListener!);
     }
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final distFromBottom =
+        _scrollCtrl.position.maxScrollExtent - _scrollCtrl.offset;
+    final shouldShow = distFromBottom > 120;
+    if (shouldShow != _showScrollDown) {
+      setState(() => _showScrollDown = shouldShow);
+    }
   }
 
   // ─── Init ─────────────────────────────────────────────
@@ -80,25 +99,22 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     await Future.wait([
-      _loadHistory(auth.user!.email),
+      _loadHistory(),
       _checkBlock(),
     ]);
 
-    // Listen for events from the notification WebSocket while on this screen
     _notifListener = (data) {
       final type = data['type'] as String? ?? '';
 
-      // New message from the recipient — the notification payload has no _id,
-      // so we do a silent history reload to get the real message with its ID.
+      // New message from recipient: reload silently to get the real message + ID
       if (type == 'new_message') {
         final senderEmail = data['sender_email'] as String? ?? '';
         if (senderEmail != widget.recipientEmail) return;
-        // Reload silently — adds only new messages, no visible flash
-        if (mounted) _loadHistory(auth.user!.email, silent: true);
+        if (mounted) _loadHistory(silent: true);
         return;
       }
 
-      // Recipient read our message — flip that bubble to blue immediately
+      // Recipient read our message — flip that bubble's checkmark to blue
       if (type == 'message_read') {
         final messageId = data['message_id'] as String? ?? '';
         final reader    = data['reader']     as String? ?? '';
@@ -115,7 +131,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
-      // Recipient came online / went offline
+      // Recipient presence changed
       if (type == 'presence_change') {
         final email  = data['email']  as String? ?? '';
         final online = data['online'] as bool?   ?? false;
@@ -128,7 +144,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (!mounted) return;
     _ws = ChatWebSocket(
-      userEmail: auth.user!.email,
+      userEmail: _myEmail,
       token:     auth.token!,
       onConnectionChange: (connected) {
         if (mounted) setState(() => _wsConnected = connected);
@@ -136,7 +152,7 @@ class _ChatScreenState extends State<ChatScreen> {
       onMessage: _onIncomingMessage,
     )..connect();
 
-    // Presence poll every 20s as fallback if presence_change events are missed
+    // Presence poll as fallback — real-time via presence_change events
     _checkPresence();
     _presenceTimer = Timer.periodic(
       const Duration(seconds: 20),
@@ -152,76 +168,78 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _onIncomingMessage(ChatMessage msg) {
-    // Only messages in this conversation
     final pair = {_myEmail, widget.recipientEmail};
     if (!pair.containsAll({msg.senderEmail, msg.recipientEmail})) return;
     if (_seenIds.contains(msg.id)) return;
     _seenIds.add(msg.id);
-
     if (!mounted) return;
 
     setState(() {
       if (msg.senderEmail == _myEmail) {
-        // Our own message echoed back (multi-device) — replace the matching
-        // tmp_ bubble that was waiting for confirmation.
-        // Match by message text + approximate time to find the right tmp_ bubble
-        // if multiple were sent quickly.
+        // Echo from another device — replace matching tmp_ bubble
         final tmpIdx = _messages.indexWhere((m) =>
             m.id.startsWith('tmp_') && m.message == msg.message);
         if (tmpIdx != -1) {
           _seenIds.remove(_messages[tmpIdx].id);
           _messages[tmpIdx] = msg;
         } else {
-          // No matching tmp_ (e.g. second device, or delay expired) — just add it
           _messages.add(msg);
         }
       } else {
         _messages.add(msg);
-        // Mark as read immediately since we're actively in the chat
-        ApiService.markRead(msg.id).ignore();
-        HapticFeedback.lightImpact();
       }
     });
 
-    _scrollToBottom(animated: true);
+    // Haptic + markRead outside setState
+    if (msg.senderEmail != _myEmail) {
+      HapticFeedback.lightImpact();
+      _markRead(msg.id);
+    }
+
+    // Only auto-scroll if user is already near the bottom
+    if (!_showScrollDown) {
+      _scheduleScrollToBottom(animated: true);
+    }
   }
 
   // ─── Load history ─────────────────────────────────────
-  Future<void> _loadHistory(String myEmail, {bool silent = false}) async {
+  Future<void> _loadHistory({bool silent = false}) async {
     try {
-      final raw = await ApiService.getMessages(myEmail, widget.recipientEmail);
+      final raw = await ApiService.getMessages(_myEmail, widget.recipientEmail);
       if (!mounted) return;
 
       final parsed = (raw as List)
           .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      // Build a set of IDs in the new list for dedup
       final newIds = parsed.map((m) => m.id).toSet();
 
       if (silent) {
-        // Merge: keep existing tmp_ bubbles (in-flight sends),
-        // replace everything else with fresh server data
+        // Keep only tmp_ bubbles whose message text is NOT yet in the server
+        // response — avoids duplicating confirmed messages
+        final pendingTmps = _messages.where((m) =>
+            m.id.startsWith('tmp_') &&
+            !parsed.any((p) => p.message == m.message)).toList();
+
         setState(() {
-          final tmpBubbles = _messages.where((m) => m.id.startsWith('tmp_')).toList();
           _seenIds
             ..clear()
             ..addAll(newIds);
-          for (final t in tmpBubbles) { _seenIds.add(t.id); }
-          _messages = [...parsed, ...tmpBubbles];
+          for (final t in pendingTmps) { _seenIds.add(t.id); }
+          _messages = [...parsed, ...pendingTmps];
         });
       } else {
         _seenIds
           ..clear()
           ..addAll(newIds);
         setState(() { _messages = parsed; _loading = false; });
-        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+        _scheduleScrollToBottom();
       }
 
-      // Mark all incoming unread messages as read
+      // Mark unread incoming messages — deduplicated with _markedReadIds
       for (final m in parsed) {
-        if (!m.read && m.recipientEmail == myEmail) {
-          ApiService.markRead(m.id).ignore();
+        if (!m.read && m.recipientEmail == _myEmail) {
+          _markRead(m.id);
         }
       }
     } catch (e) {
@@ -229,6 +247,15 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() { _loading = false; _error = e.toString(); });
       }
     }
+  }
+
+  // Deduplicated markRead — logs on failure so message_read event fires reliably
+  void _markRead(String messageId) {
+    if (_markedReadIds.contains(messageId)) return;
+    _markedReadIds.add(messageId);
+    ApiService.markRead(messageId).catchError((e) {
+      _markedReadIds.remove(messageId); // allow retry
+    });
   }
 
   Future<void> _checkBlock() async {
@@ -239,15 +266,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // ─── Scroll ───────────────────────────────────────────
-  void _scrollToBottom({bool animated = false}) {
-    if (!_scrollCtrl.hasClients) return;
-    final max = _scrollCtrl.position.maxScrollExtent;
-    if (animated) {
-      _scrollCtrl.animateTo(max,
-          duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
-    } else {
-      _scrollCtrl.jumpTo(max);
-    }
+  void _scheduleScrollToBottom({bool animated = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      final max = _scrollCtrl.position.maxScrollExtent;
+      if (animated) {
+        _scrollCtrl.animateTo(max,
+            duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+      } else {
+        _scrollCtrl.jumpTo(max);
+      }
+    });
   }
 
   // ─── Send ─────────────────────────────────────────────
@@ -265,18 +294,19 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    final tempId = 'tmp_${DateTime.now().millisecondsSinceEpoch}';
+    final tempId   = 'tmp_${DateTime.now().millisecondsSinceEpoch}';
+    final msgText  = text;
     final optimistic = ChatMessage(
       id:             tempId,
       senderEmail:    _myEmail,
       senderUsername: '',
       recipientEmail: widget.recipientEmail,
-      message:        text,
+      message:        msgText,
       timestamp:      DateTime.now().toUtc().toIso8601String(),
       read:           false,
     );
 
-    final sent = _ws?.sendMessage(widget.recipientEmail, text) ?? false;
+    final sent = _ws?.sendMessage(widget.recipientEmail, msgText) ?? false;
     if (!sent) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -289,37 +319,36 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _seenIds.add(tempId);
     setState(() => _messages.add(optimistic));
-    _scrollToBottom(animated: true);
+    _scheduleScrollToBottom(animated: true);
     _msgCtrl.clear();
     HapticFeedback.selectionClick();
 
-    // Backend does NOT echo to the sender's own connection.
-    // After 600ms confirm the bubble ourselves: clock → single checkmark.
+    // Backend doesn't echo to the sender's own connection.
+    // After 600ms, confirm the bubble: clock → single checkmark.
     Future.delayed(const Duration(milliseconds: 600), () {
       if (!mounted) return;
+      final idx = _messages.indexWhere((m) => m.id == tempId);
+      if (idx == -1) return; // already replaced by a server echo or silent reload
       setState(() {
-        final idx = _messages.indexWhere((m) => m.id == tempId);
-        if (idx != -1) {
-          final confirmed = ChatMessage(
-            id:             'sent_${DateTime.now().millisecondsSinceEpoch}',
-            senderEmail:    optimistic.senderEmail,
-            senderUsername: optimistic.senderUsername,
-            recipientEmail: optimistic.recipientEmail,
-            message:        optimistic.message,
-            timestamp:      optimistic.timestamp,
-            read:           false,
-          );
-          _seenIds.remove(tempId);
-          _seenIds.add(confirmed.id);
-          _messages[idx] = confirmed;
-        }
+        final confirmed = ChatMessage(
+          id:             'sent_${DateTime.now().millisecondsSinceEpoch}',
+          senderEmail:    optimistic.senderEmail,
+          senderUsername: optimistic.senderUsername,
+          recipientEmail: optimistic.recipientEmail,
+          message:        msgText,
+          timestamp:      optimistic.timestamp,
+          read:           false,
+        );
+        _seenIds.remove(tempId);
+        _seenIds.add(confirmed.id);
+        _messages[idx] = confirmed;
       });
     });
   }
 
   Future<void> _toggleBlock() async {
     try {
-      final result = await ApiService.toggleBlock(widget.recipientEmail);
+      final result  = await ApiService.toggleBlock(widget.recipientEmail);
       final blocked = result['blocked'] == true;
       if (mounted) {
         setState(() => _isBlocked = blocked);
@@ -354,7 +383,6 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // Status subtitle: only show recipient's online state, not our own WS state
     final statusText  = _recipientOnline ? 'Online' : 'Offline';
     final statusColor = _recipientOnline ? Colors.greenAccent : Colors.white38;
 
@@ -385,7 +413,7 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       body: Column(children: [
-        // ── Reconnecting banner ───────────────────────
+        // Reconnecting banner
         AnimatedSize(
           duration: const Duration(milliseconds: 200),
           child: !_wsConnected && !_loading
@@ -395,19 +423,49 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: const Row(children: [
                     SizedBox(
                       width: 14, height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.orange),
                     ),
                     SizedBox(width: 8),
-                    Text('Reconnecting...', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                    Text('Reconnecting...',
+                        style: TextStyle(fontSize: 12, color: Colors.orange)),
                   ]),
                 )
               : const SizedBox.shrink(),
         ),
 
-        // ── Messages ──────────────────────────────────
-        Expanded(child: _buildBody(auth.user!.email)),
+        // Messages + scroll-down badge
+        Expanded(
+          child: Stack(children: [
+            _buildBody(auth.user!.email),
+            // Scroll-to-bottom badge — shown when user scrolled up
+            if (_showScrollDown)
+              Positioned(
+                bottom: 10, right: 14,
+                child: GestureDetector(
+                  onTap: () => _scheduleScrollToBottom(animated: true),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color:     AppTheme.primary,
+                      shape:     BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color:       Colors.black.withValues(alpha: 0.18),
+                          blurRadius:  6,
+                          offset:      const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.keyboard_arrow_down,
+                        color: Colors.white, size: 22),
+                  ),
+                ),
+              ),
+          ]),
+        ),
 
-        // ── Blocked banner ────────────────────────────
+        // Blocked banner
         if (_isBlocked)
           Container(
             color: Colors.red.withValues(alpha: 0.06),
@@ -422,7 +480,6 @@ class _ChatScreenState extends State<ChatScreen> {
             ]),
           ),
 
-        // ── Input ─────────────────────────────────────
         _buildInput(),
       ]),
     );
@@ -433,7 +490,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_error != null) {
       return ErrorState(
         message: _error!,
-        onRetry: () => _loadHistory(myEmail),
+        onRetry: _loadHistory,
       );
     }
     if (_messages.isEmpty) {
@@ -479,12 +536,12 @@ class _ChatScreenState extends State<ChatScreen> {
               maxLines: 4,
               minLines: 1,
               decoration: InputDecoration(
-                hintText: _isBlocked ? 'Blocked' : 'Type a message...',
-                filled: true,
+                hintText:  _isBlocked ? 'Blocked' : 'Type a message...',
+                filled:    true,
                 fillColor: Colors.grey[100],
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
+                  borderSide:   BorderSide.none,
                 ),
                 contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 10),
@@ -528,8 +585,8 @@ class _DateDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     String label;
     try {
-      final dt  = DateTime.parse(timestamp).toLocal();
-      final now = DateTime.now();
+      final dt        = DateTime.parse(timestamp).toLocal();
+      final now       = DateTime.now();
       final today     = DateTime(now.year, now.month, now.day);
       final yesterday = today.subtract(const Duration(days: 1));
       final msgDay    = DateTime(dt.year, dt.month, dt.day);
@@ -600,12 +657,12 @@ class _Bubble extends StatelessWidget {
                       fontSize: 10)),
               if (isMe) ...[
                 const SizedBox(width: 4),
-                // ⏰ tmp_   → clock     (sending)
-                // ✓  sent_  → single    (delivered, unread)
-                // ✓✓ blue   → double    (read by recipient)
+                // ⏰  tmp_  → clock    (sending in progress)
+                // ✓   sent_ → single   (delivered, not yet read)
+                // ✓✓  blue  → double   (read by recipient)
                 Icon(
-                  isTemp        ? Icons.access_time
-                      : msg.read    ? Icons.done_all
+                  isTemp     ? Icons.access_time
+                      : msg.read ? Icons.done_all
                       : Icons.done,
                   size: 13,
                   color: isTemp     ? Colors.white38
