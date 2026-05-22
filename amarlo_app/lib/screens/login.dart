@@ -52,7 +52,10 @@ class _LoginPageState extends State<LoginPage> {
 
     if (!mounted) return;
     if (ok) {
-      Navigator.pushReplacementNamed(context, '/navigationBar');
+      // NavigationBarPage is always the root widget and already watches AuthProvider.
+      // Popping to root is enough — it will rebuild with the logged-in pages
+      // and show the Home tab (index 0) immediately.
+      Navigator.popUntil(context, (route) => route.isFirst);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
