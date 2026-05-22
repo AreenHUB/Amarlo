@@ -180,6 +180,11 @@ class HomePageState extends State<HomePage> {
   // Debounced version used by the search TextField.
   void _onSearchChanged(String _) {
     _searchDebounce?.cancel();
+    // When user types a search query, clear the category pill selection
+    // so results aren't double-filtered (search alone is the intent).
+    if (_searchCtrl.text.trim().isNotEmpty && _selectedCategory != null) {
+      _selectedCategory = null;
+    }
     _searchDebounce = Timer(const Duration(milliseconds: 180), _applyFilters);
   }
 
@@ -438,7 +443,8 @@ class HomePageState extends State<HomePage> {
           Expanded(
             child: TextField(
               controller:      _searchCtrl,
-              onChanged:       _onSearchChanged,   // debounced
+              onChanged:       _onSearchChanged,
+              onSubmitted:     (_) { _searchDebounce?.cancel(); _applyFilters(); },
               style:           const TextStyle(fontSize: 14),
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
