@@ -70,6 +70,7 @@ class AppConstants {
   // ─── Users ───────────────────────────────────────────
   static String userUrl(String id)           => '$baseUrl/users/$id';
   static String userByEmailUrl(String email) => '$baseUrl/users?email=$email';
+  static String get deleteAccountUrl         => '$baseUrl/users/me';
   static String reviewsUrl(String email)      => '$baseUrl/users/$email/reviews';
   static String reviewUrl(String id)          => '$baseUrl/users/reviews/$id';
   static String canReviewUrl(String email)    => '$baseUrl/users/$email/can-review';

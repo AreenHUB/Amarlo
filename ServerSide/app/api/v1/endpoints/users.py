@@ -4,6 +4,7 @@ app/api/v1/endpoints/users.py
 GET    /users                      — بحث عن مستخدم بالـ email
 GET    /users/{user_id}            — بروفايل مستخدم
 PUT    /users/{user_id}            — تعديل البروفايل
+DELETE /users/me                   — حذف الحساب نهائياً
 
 Work Reviews (مرتبطة بـ request_id):
 GET    /users/{email}/reviews      — تقييمات عامل (work reviews فقط)
@@ -25,8 +26,11 @@ from fastapi import (APIRouter, Depends, File, Form,
                      HTTPException, Request, UploadFile, status)
 
 from app.api.dependencies import get_current_user
-from app.db import (conduct_reports_collection, requests_collection,
-                    reviews_collection, users_collection)
+from app.db import (conduct_reports_collection, messages_collection,
+                    payments_collection, posts_collection,
+                    requests_collection, reviews_collection,
+                    safe_area_collection, services_collection,
+                    users_collection)
 from app.schemas.common import MessageResponse
 from app.schemas.user import (CONDUCT_REASONS, ConductReportCreate,
                                ReviewCreate, ReviewOut,
@@ -104,6 +108,74 @@ async def update_user(
         users_collection.update_one({"_id": user_id}, {"$set": update})
 
     return UserOut.from_doc(users_collection.find_one({"_id": user_id}))
+
+
+@router.delete("/me", status_code=204, summary="حذف الحساب نهائياً")
+async def delete_account(current_user: dict = Depends(get_current_user)):
+    """
+    يحذف الحساب وكل البيانات المرتبطة به بشكل نهائي:
+    - الملف الشخصي + صورته
+    - خدماته (إذا كان Worker)
+    - منشوراته وعروضه
+    - رسائله
+    - تقييماته
+    - طلباته
+    - refresh tokens
+    """
+    user_id    = str(current_user["_id"])
+    email      = current_user["email"]
+
+    # Delete profile image from disk
+    delete_image_file(current_user.get("image_url"))
+
+    # Delete user's services and their images (Workers)
+    worker_services = list(services_collection.find({"worker_email": email}, {"image_url": 1}))
+    for s in worker_services:
+        delete_image_file(s.get("image_url"))
+    services_collection.delete_many({"worker_email": email})
+
+    # Delete posts created by user
+    posts_collection.delete_many({"creator_email": email})
+
+    # Remove offers this user sent on other posts
+    posts_collection.update_many(
+        {"offers.worker_email": email},
+        {"$pull": {"offers": {"worker_email": email}}},
+    )
+
+    # Delete messages (sent and received)
+    messages_collection.delete_many({
+        "$or": [{"sender_email": email}, {"recipient_email": email}]
+    })
+
+    # Delete reviews given and received
+    reviews_collection.delete_many({
+        "$or": [{"reviewer_email": email}, {"reviewee_email": email}]
+    })
+
+    # Delete conduct reports involving this user
+    conduct_reports_collection.delete_many({
+        "$or": [{"reporter_email": email}, {"reported_email": email}]
+    })
+
+    # Delete service requests (as user or worker)
+    user_requests = list(requests_collection.find({
+        "$or": [{"user_email": email}, {"worker_email": email}]
+    }, {"_id": 1}))
+    req_ids = [str(r["_id"]) for r in user_requests]
+    if req_ids:
+        safe_area_collection.delete_many({"request_id": {"$in": req_ids}})
+        payments_collection.delete_many({"request_id": {"$in": req_ids}})
+    requests_collection.delete_many({
+        "$or": [{"user_email": email}, {"worker_email": email}]
+    })
+
+    # Delete refresh tokens
+    from app.db import refresh_tokens_collection
+    refresh_tokens_collection.delete_many({"user_email": email})
+
+    # Finally delete the user document
+    users_collection.delete_one({"_id": user_id})
 
 
 # ═══════════════════════════════════════════════════════

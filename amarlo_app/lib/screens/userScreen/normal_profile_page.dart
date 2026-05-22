@@ -164,11 +164,64 @@ class _NormalProfilePageState extends State<NormalProfilePage> {
                       style: ElevatedButton.styleFrom(
                           minimumSize: const Size(double.infinity, 50)),
                     ),
+                    const SizedBox(height: 32),
+                    const Divider(),
+                    const SizedBox(height: 12),
+
+                    // ── Delete account ───────────────────────
+                    OutlinedButton.icon(
+                      onPressed: _confirmDelete,
+                      icon: const Icon(Icons.delete_forever, color: Colors.red),
+                      label: const Text('Delete Account',
+                          style: TextStyle(color: Colors.red)),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        side: const BorderSide(color: Colors.red),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
             ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text(
+          'This will permanently delete your account and all your data.\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ApiService.deleteAccount();
+      if (!mounted) return;
+      await context.read<AuthProvider>().logout();
+      if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   Widget _field(TextEditingController c, String label, IconData icon,

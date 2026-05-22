@@ -116,6 +116,43 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
     if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
   }
 
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text(
+          'This will permanently delete your account and all your data.\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ApiService.deleteAccount();
+      if (!mounted) return;
+      await context.read<AuthProvider>().logout();
+      if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   @override
   void dispose() {
     for (final c in [_introCtrl,_fbCtrl,_igCtrl,_tgCtrl,_liCtrl,
@@ -212,6 +249,19 @@ class _WorkerProfilePageState extends State<WorkerProfilePage> {
                 label: const Text('Save Profile'),
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 48),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _confirmDelete,
+                icon: const Icon(Icons.delete_forever, color: Colors.red),
+                label: const Text('Delete Account',
+                    style: TextStyle(color: Colors.red)),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                  side: const BorderSide(color: Colors.red),
                 ),
               ),
               const SizedBox(height: 24),

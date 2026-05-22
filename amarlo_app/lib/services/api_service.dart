@@ -422,6 +422,10 @@ class ApiService {
     await api.put(AppConstants.markReadUrl(messageId), {});
   }
 
+  static Future<void> deleteAccount() async {
+    await api.delete(AppConstants.deleteAccountUrl);
+  }
+
   static Future<Map<String, dynamic>> toggleBlock(String email) async {
     final data = await api.post(AppConstants.toggleBlockUrl(email), {});
     return (data as Map<String, dynamic>?) ?? {};
