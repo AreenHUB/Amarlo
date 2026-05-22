@@ -113,7 +113,7 @@ class _RegisterPageState extends State<RegisterPage> {
       if (!mounted) return;
       // Navigate to LoginPage — pushReplacement works whether this screen
       // was a nav tab (nothing to pop) or pushed via Navigator.push.
-      Navigator.pushReplacement(
+      Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => const LoginPage(successMessage: 'Account created! Please log in.'),

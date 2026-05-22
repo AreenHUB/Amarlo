@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
+import '../widgets/navigation_bar.dart';
 import 'register.dart';
 
 class LoginPage extends StatefulWidget {
@@ -52,10 +53,10 @@ class _LoginPageState extends State<LoginPage> {
 
     if (!mounted) return;
     if (ok) {
-      // NavigationBarPage is always the root widget and already watches AuthProvider.
-      // Popping to root is enough — it will rebuild with the logged-in pages
-      // and show the Home tab (index 0) immediately.
-      Navigator.popUntil(context, (route) => route.isFirst);
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const NavigationBarPage()),
+        (route) => false,
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
