@@ -44,6 +44,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _loading         = true;
   bool _recipientOnline = false;
   Timer? _presenceTimer;
+  Timer? _readSyncTimer;
   String? _error;
 
   // listener يُسجَّل في NotificationManager لاستقبال رسائل جديدة
@@ -63,10 +64,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    // أزل الـ active chat عند الخروج من الشاشة
     NotificationManager.instance.setActiveChatEmail(null);
     _ws?.disconnect();
     _presenceTimer?.cancel();
+    _readSyncTimer?.cancel();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     if (_notifListener != null) {
@@ -118,6 +119,12 @@ class _ChatScreenState extends State<ChatScreen> {
       const Duration(seconds: 15),
       (_) => _checkPresence(),
     );
+
+    // Read-status sync كل 10 ثانية — يُحدّث علامات القراءة فقط بدون rebuild ظاهر
+    _readSyncTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _syncReadStatus(auth.user!.email),
+    );
   }
 
   Future<void> _checkPresence() async {
@@ -158,6 +165,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (msg.senderEmail != _myEmail) {
       HapticFeedback.lightImpact();
       ApiService.markRead(msg.id).ignore();
+      // recipient sent a message — they are clearly reading → mark our sent messages read
+      _markSentMessagesRead();
     }
   }
 
@@ -200,6 +209,47 @@ class _ChatScreenState extends State<ChatScreen> {
       final blocked = await ApiService.getBlockStatus(widget.recipientEmail);
       if (mounted) setState(() => _isBlocked = blocked);
     } catch (_) {}
+  }
+
+  // يُحدّث علامة القراءة على الرسائل المُرسَلة بدون reload كامل
+  Future<void> _syncReadStatus(String myEmail) async {
+    if (!mounted || _messages.isEmpty) return;
+    try {
+      final raw = await ApiService.getMessages(myEmail, widget.recipientEmail);
+      if (!mounted) return;
+      final fetched = (raw as List)
+          .map((e) => ChatMessage.fromJson(e))
+          .toList();
+      // بناء map من id → read للمقارنة السريعة
+      final readMap = <String, bool>{};
+      for (final m in fetched) {
+        readMap[m.id] = m.read;
+      }
+      // حدّث فقط الرسائل التي تغيّرت قيمة read فيها
+      var changed = false;
+      final updated = _messages.map((m) {
+        final serverRead = readMap[m.id];
+        if (serverRead == true && !m.read) {
+          changed = true;
+          return m.copyWith(read: true);
+        }
+        return m;
+      }).toList();
+      if (changed && mounted) setState(() => _messages = updated);
+    } catch (_) {}
+  }
+
+  // عندما يرد المستلم — فهو يقرأ بالتأكيد → حدّث كل رسائلنا المُرسَلة فوراً
+  void _markSentMessagesRead() {
+    var changed = false;
+    final updated = _messages.map((m) {
+      if (m.senderEmail == _myEmail && !m.read && !m.id.startsWith('tmp_')) {
+        changed = true;
+        return m.copyWith(read: true);
+      }
+      return m;
+    }).toList();
+    if (changed && mounted) setState(() => _messages = updated);
   }
 
   // ─── Scroll ───────────────────────────────────────────

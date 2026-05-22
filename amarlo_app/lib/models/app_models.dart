@@ -499,6 +499,16 @@ class ChatMessage {
         timestamp:        j['timestamp']        ?? '',
         read:             j['read']             ?? false,
       );
+
+  ChatMessage copyWith({bool? read}) => ChatMessage(
+        id:             id,
+        senderEmail:    senderEmail,
+        senderUsername: senderUsername,
+        recipientEmail: recipientEmail,
+        message:        message,
+        timestamp:      timestamp,
+        read:           read ?? this.read,
+      );
 }
 
 // ══════════════════════════════════════════════
