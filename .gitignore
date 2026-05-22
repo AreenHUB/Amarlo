@@ -25,7 +25,21 @@ Thumbs.db
 # Logs
 *.log
 
+# Project-internal docs not needed on GitHub
 CLAUDE.md
-edits.txt
-/ServerSide/uploads/
+MIGRATION_GUIDE.md
+PROJECT_ANALYSIS.md
+README_v2.1.md
 future_idea.md
+edits.txt
+edits2.txt
+mockups/
+
+# Claude Code
+.claude/
+
+# Uploaded files (generated at runtime)
+/ServerSide/uploads/
+
+# Seed / dev scripts
+seed_data.py
