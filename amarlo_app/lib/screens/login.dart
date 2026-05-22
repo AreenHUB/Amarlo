@@ -69,7 +69,12 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.canPop(context);
+
     return Scaffold(
+      appBar: canPop
+          ? AppBar(backgroundColor: Colors.transparent, elevation: 0)
+          : null,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
