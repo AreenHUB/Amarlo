@@ -7,7 +7,9 @@ import '../providers/auth_provider.dart';
 import 'register.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  /// Optional message shown as a green banner when arriving from registration.
+  final String? successMessage;
+  const LoginPage({super.key, this.successMessage});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -18,6 +20,22 @@ class _LoginPageState extends State<LoginPage> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.successMessage != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(widget.successMessage!),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ));
+      });
+    }
+  }
 
   @override
   void dispose() {

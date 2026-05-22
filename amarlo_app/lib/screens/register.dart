@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/theme.dart';
 import '../services/http_client.dart';
 import '../core/constants.dart';
+import 'login.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -110,8 +111,14 @@ class _RegisterPageState extends State<RegisterPage> {
       }
 
       if (!mounted) return;
-      _snack('Account created! Please log in.');
-      Navigator.pop(context);
+      // Navigate to LoginPage — pushReplacement works whether this screen
+      // was a nav tab (nothing to pop) or pushed via Navigator.push.
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const LoginPage(successMessage: 'Account created! Please log in.'),
+        ),
+      );
     } on ApiException catch (e) {
       if (mounted) _snack(e.message, isError: true);
     } catch (e) {
