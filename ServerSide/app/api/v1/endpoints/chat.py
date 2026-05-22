@@ -372,11 +372,19 @@ async def get_conversations(
 
 @router.put("/messages/{message_id}/read", response_model=MessageResponse)
 async def mark_read(message_id: str, current_user: dict = Depends(get_current_user)):
-    messages_collection.update_one(
+    result = messages_collection.find_one_and_update(
         {"_id": message_id, "recipient_email": current_user["email"]},
         {"$set": {"read": True}},
+        return_document=True,
     )
     await _push_unread_count(current_user["email"])
+    # Notify the original sender so their checkmark turns blue in real-time
+    if result and result.get("sender_email"):
+        await push_notification(result["sender_email"], {
+            "type":       "message_read",
+            "message_id": message_id,
+            "reader":     current_user["email"],
+        })
     return {"message": "Marked as read"}
 
 
