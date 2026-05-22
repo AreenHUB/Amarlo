@@ -41,7 +41,7 @@ online_users: Dict[str, bool] = {}
 
 # Notification types that are ephemeral (chat messages handled separately)
 # and should NOT be persisted to the pending queue.
-_EPHEMERAL_TYPES = {"unread_count", "ping", "pong", "connected"}
+_EPHEMERAL_TYPES = {"unread_count", "ping", "pong", "connected", "presence_change", "message_read"}
 
 
 async def push_notification(email: str, event: dict) -> None:
@@ -97,6 +97,28 @@ async def _flush_pending_notifications(email: str, ws: WebSocket) -> None:
         pending_notifications_collection.delete_many({"_id": {"$in": ids_to_delete}})
 
 
+async def _broadcast_presence(email: str, online: bool) -> None:
+    """
+    يُرسل presence_change لكل المستخدمين الذين لديهم محادثة نشطة مع هذا المستخدم.
+    يُستدعى عند اتصال/انقطاع chat WebSocket.
+    """
+    event = {"type": "presence_change", "email": email, "online": online}
+    # Find unique conversation partners from the messages collection
+    partners = messages_collection.distinct(
+        "recipient_email", {"sender_email": email}
+    ) + messages_collection.distinct(
+        "sender_email", {"recipient_email": email}
+    )
+    seen: set = set()
+    for partner in partners:
+        if partner == email or partner in seen:
+            continue
+        seen.add(partner)
+        # Only push if the partner has an active notification connection
+        if active_notification_connections.get(partner):
+            await push_notification(partner, event)
+
+
 async def _push_unread_count(email: str) -> None:
     count = messages_collection.count_documents(
         {"recipient_email": email, "read": False}
@@ -137,6 +159,9 @@ async def chat_ws(
     active_chat_connections.setdefault(user_email, set()).add(websocket)
     online_users[user_email] = True
 
+    # Notify everyone who is currently chatting with this user that they came online
+    await _broadcast_presence(user_email, online=True)
+
     # ── Message loop ──────────────────────────────────────
     try:
         while True:
@@ -166,9 +191,10 @@ async def chat_ws(
         pass
     finally:
         active_chat_connections.get(user_email, set()).discard(websocket)
-        # offline إذا لا توجد connections متبقية
+        # offline if no connections remain
         if not active_chat_connections.get(user_email):
             online_users[user_email] = False
+            await _broadcast_presence(user_email, online=False)
 
 
 async def _handle_message(msg: dict, sender: dict, sender_ws: WebSocket) -> None:
