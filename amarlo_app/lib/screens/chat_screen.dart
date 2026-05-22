@@ -243,7 +243,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final sent = _ws?.sendMessage(widget.recipientEmail, text) ?? false;
     if (!sent) {
-      // فشل الإرسال — لا نُضيف الـ bubble
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Failed to send. Please try again.'),
@@ -258,6 +257,31 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom(animated: true);
     _msgCtrl.clear();
     HapticFeedback.selectionClick();
+
+    // The backend does NOT echo the message back to the sender's own
+    // connection (by design — to avoid duplicates on multi-device).
+    // So we confirm the bubble ourselves after a short delay,
+    // replacing tmp_ with a sent (non-temp) id → clock becomes checkmark.
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      setState(() {
+        final idx = _messages.indexWhere((m) => m.id == tempId);
+        if (idx != -1) {
+          final confirmed = ChatMessage(
+            id:             'sent_${DateTime.now().millisecondsSinceEpoch}',
+            senderEmail:    optimistic.senderEmail,
+            senderUsername: optimistic.senderUsername,
+            recipientEmail: optimistic.recipientEmail,
+            message:        optimistic.message,
+            timestamp:      optimistic.timestamp,
+            read:           false,
+          );
+          _seenIds.remove(tempId);
+          _seenIds.add(confirmed.id);
+          _messages[idx] = confirmed;
+        }
+      });
+    });
   }
 
   Future<void> _toggleBlock() async {
