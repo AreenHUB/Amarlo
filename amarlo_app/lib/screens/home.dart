@@ -648,7 +648,7 @@ class HomePageState extends State<HomePage> {
           crossAxisCount:   2,
           mainAxisSpacing:  10,
           crossAxisSpacing: 10,
-          childAspectRatio: 0.72,
+          childAspectRatio: 0.65,
         ),
       ),
     );
@@ -668,7 +668,7 @@ class HomePageState extends State<HomePage> {
           crossAxisCount:   2,
           mainAxisSpacing:  10,
           crossAxisSpacing: 10,
-          childAspectRatio: 0.72,
+          childAspectRatio: 0.65,
         ),
       ),
     );
@@ -840,24 +840,23 @@ class _ServiceCard extends StatelessWidget {
             // ── Body ───────────────────────────────────
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
                 child: Column(
-                  crossAxisAlignment:  CrossAxisAlignment.start,
-                  mainAxisAlignment:   MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Worker
                     Row(children: [
                       CircleAvatar(
-                        radius:          10,
+                        radius:          9,
                         backgroundColor: AppTheme.primary,
                         child: Text(
                           service.workerUsername.isNotEmpty
                               ? service.workerUsername[0].toUpperCase() : '?',
                           style: const TextStyle(
-                              color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                              color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      const SizedBox(width: 5),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Text(service.workerUsername,
                             maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -866,29 +865,29 @@ class _ServiceCard extends StatelessWidget {
                       ),
                     ]),
                     const SizedBox(height: 4),
-                    // Name
+                    // Name — Flexible so it shrinks on small text instead of overflowing
                     Text(service.name,
                         maxLines: 2, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontSize: 12, fontWeight: FontWeight.w700,
-                            color: Color(0xFF212121), height: 1.3)),
-                    const SizedBox(height: 4),
+                            color: Color(0xFF212121), height: 1.25)),
+                    const Spacer(),
                     // Price
                     Text('\$${service.price.toStringAsFixed(0)}',
                         style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.primary)),
-                    const SizedBox(height: 6),
+                            fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.primary)),
+                    const SizedBox(height: 5),
                     // Request button
                     SizedBox(
                       width: double.infinity,
-                      height: 32,
+                      height: 30,
                       child: ElevatedButton(
                         onPressed: onRequest,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.primary,
                           padding:         EdgeInsets.zero,
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(9)),
+                              borderRadius: BorderRadius.circular(8)),
                           textStyle: const TextStyle(
                               fontSize: 12, fontWeight: FontWeight.w600),
                         ),
@@ -955,19 +954,21 @@ class _ServiceCardSkeleton extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           skeletonBox(height: 118, radius: 0),
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              skeletonBox(height: 11, width: 80),
-              const SizedBox(height: 6),
-              skeletonBox(height: 13),
-              const SizedBox(height: 4),
-              skeletonBox(height: 13, width: 100),
-              const SizedBox(height: 8),
-              skeletonBox(height: 16, width: 50),
-              const SizedBox(height: 8),
-              skeletonBox(height: 32),
-            ]),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                skeletonBox(height: 10, width: 80),
+                const SizedBox(height: 6),
+                skeletonBox(height: 12),
+                const SizedBox(height: 4),
+                skeletonBox(height: 12, width: 100),
+                const Spacer(),
+                skeletonBox(height: 15, width: 50),
+                const SizedBox(height: 6),
+                skeletonBox(height: 30),
+              ]),
+            ),
           ),
         ]),
       ),
