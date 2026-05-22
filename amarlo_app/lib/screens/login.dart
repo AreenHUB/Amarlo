@@ -72,9 +72,7 @@ class _LoginPageState extends State<LoginPage> {
     final canPop = Navigator.canPop(context);
 
     return Scaffold(
-      appBar: canPop
-          ? AppBar(backgroundColor: Colors.transparent, elevation: 0)
-          : null,
+      appBar: canPop ? AppBar() : null,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
